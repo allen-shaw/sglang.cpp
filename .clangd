@@ -1,2 +1,2 @@
 CompileFlags:
-  Add: ["-I${PROJECT_ROOT}/build/proto"]
+  Add: ["-I${PROJECT_ROOT}/build/proto", "-std=gnu++23"]
