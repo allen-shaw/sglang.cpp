@@ -11,13 +11,20 @@ find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
 
 # Protobuf generation
-set(PROTO_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/protos)
-set(PROTO_HDR_DIR ${CMAKE_CURRENT_BINARY_DIR}/protos)
+# Protobuf generation
+set(PROTO_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
+set(PROTO_HDR_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
 file(MAKE_DIRECTORY ${PROTO_HDR_DIR})
 
-protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS 
-    ${PROTO_SRC_DIR}/sglang.proto
+add_custom_command(
+    OUTPUT ${PROTO_HDR_DIR}/sglang.pb.h ${PROTO_HDR_DIR}/sglang.pb.cc
+    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
+    ARGS --cpp_out ${CMAKE_CURRENT_BINARY_DIR} -I ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_SRC_DIR}/sglang.proto
+    DEPENDS ${PROTO_SRC_DIR}/sglang.proto
 )
+
+set(PROTO_SRCS ${PROTO_HDR_DIR}/sglang.pb.cc)
+set(PROTO_HDRS ${PROTO_HDR_DIR}/sglang.pb.h)
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include

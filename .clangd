@@ -1,2 +1,2 @@
 CompileFlags:
-  Add: [-I${PROJECT_ROOT}/build/protos]
+  Add: ["-I${PROJECT_ROOT}/build/proto"]

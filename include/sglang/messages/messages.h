@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sglang.pb.h"
+#include "proto/sglang.pb.h"
 
 namespace sglang {
     // Re-export specific message types if needed, or use sglang::GenerateReq directly
