@@ -2,12 +2,16 @@ cmake_minimum_required(VERSION 3.10)
 project(sglang_cpp CXX)
 
 set(CMAKE_CXX_STANDARD 23)
+add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 
 # Find dependencies
-find_package(Protobuf REQUIRED)
+# Find dependencies
+set(Protobuf_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/protobuf/lib/cmake/protobuf")
+find_package(Protobuf CONFIG REQUIRED)
+set(Protobuf_PROTOC_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/protobuf/bin/protoc")
 find_package(Threads REQUIRED)
 
 # Protobuf generation
@@ -39,17 +43,25 @@ add_executable(sglang_server
 )
 
 target_link_libraries(sglang_server
-    ${Protobuf_LIBRARIES}
+    protobuf::libprotobuf
     ${TORCH_LIBRARIES}
     Threads::Threads
 )
 
 # LibTorch
 # LibTorch
-set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libtorch;${CMAKE_PREFIX_PATH}")
+set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;${CMAKE_PREFIX_PATH}")
+# LibTorch
+set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;${CMAKE_PREFIX_PATH}")
 find_package(Torch REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 include_directories(${TORCH_INCLUDE_DIRS})
+
+# Use Torch's protobuf if available, or ensure consistency
+# For now, we rely on Torch's include dirs being first if they contain protobuf
+# And we might need to link against Torch's protobuf explicitly if FindProtobuf picks system one
+# But usually defining ABI=0 is the main fix if we link correctly.
+
 
 # Test target for headers
 add_executable(test_core_headers
@@ -60,7 +72,7 @@ add_executable(test_core_headers
 
 target_link_libraries(test_core_headers
     ${TORCH_LIBRARIES}
-    ${Protobuf_LIBRARIES}
+    protobuf::libprotobuf
     Threads::Threads
 )
 
