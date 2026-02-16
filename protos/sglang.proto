@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package sglang;
+
+message SamplingParams {
+  int32 max_new_tokens = 1;
+  int32 stop_token_id = 2;
+  bool ignore_eos = 3;
+  float temperature = 4;
+  float top_p = 5;
+  int32 top_k = 6;
+  float frequency_penalty = 7;
+}
+
+message GenerateReq {
+  string text = 1;
+  repeated int32 input_ids = 2;
+  SamplingParams sampling_params = 3;
+  uint64 req_id = 4;
+  // TODO: Add image/multi-modal inputs
+}
+
+message GenerateResp {
+  string text = 1;
+  repeated int32 output_ids = 2;
+  map<string,  float> meta_info = 3;
+  bool finished = 4;
+}
+
+service SGLangService {
+  rpc Generate(GenerateReq) returns (GenerateResp);
+}
