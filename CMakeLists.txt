@@ -40,5 +40,31 @@ add_executable(sglang_server
 
 target_link_libraries(sglang_server
     ${Protobuf_LIBRARIES}
+    ${TORCH_LIBRARIES}
     Threads::Threads
+)
+
+# LibTorch
+# LibTorch
+set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/libtorch;${CMAKE_PREFIX_PATH}")
+find_package(Torch REQUIRED)
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+include_directories(${TORCH_INCLUDE_DIRS})
+
+# Test target for headers
+add_executable(test_core_headers
+    tests/core/test_headers.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS}
+)
+
+target_link_libraries(test_core_headers
+    ${TORCH_LIBRARIES}
+    ${Protobuf_LIBRARIES}
+    Threads::Threads
+)
+
+target_include_directories(test_core_headers PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
