@@ -5,8 +5,8 @@
 ## 第一阶段：核心基础设施 (Core Infrastructure)
 **目标：** 构建基础数据结构和工具库，这是所有其他模块的基石。
 
-*   **1.1 核心定义 (`src/core`, `src/utils`, `src/messages`)**
-    *   **文件**: `req.h`, `batch.h`, `context.h`, `tensor_utils.h`, `messages.h`
+*   **1.1 核心定义 (`src/core`, `src/utils`, `src/message`)**
+    *   **文件**: `req.h`, `batch.h`, `context.h`, `tensor_utils.h`, `sampling_params.h`
     *   **参考 Python 文件**: `minisgl/core.py`, `minisgl/env.py`, `minisgl/utils/*.py`
     *   **任务**: 定义 `Req`, `Batch`, `SamplingParams` 等核心结构体，以及 API 消息格式。
     *   **依赖**: 无（仅标准库和 LibTorch 头文件）。
@@ -78,7 +78,7 @@
     *   **文件**: `http_server.h`
     *   **参考 Python 文件**: `minisgl/server/*.py`
     *   **任务**: 使用 `brpc` 实现 `/generate` 等 API 接口。
-    *   **依赖**: `engine`, `brpc`, `messages`。
+    *   **依赖**: `engine`, `brpc`, `message`。
 
 ## 第七阶段：高级功能 (Advanced Features)
 **目标：** 扩展功能。
