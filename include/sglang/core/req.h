@@ -2,7 +2,7 @@
 
 #include <memory> 
 
-#include "sglang/messages/messages.h"
+#include "sglang/core/sampling_params.h"
 #include <torch/torch.h>
 
 namespace sglang {
