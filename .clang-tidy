@@ -1,0 +1,4 @@
+Checks: "google-*,bugprone-*,performance-*,readability-*,-google-readability-todo"
+WarningsAsErrors: ""
+HeaderFilterRegex: ".*"
+FormatStyle: Google

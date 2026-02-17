@@ -52,5 +52,6 @@ Makefile
 compile_commands.json
 
 .cache/
+.mypy_cache/
 
 third_party/
