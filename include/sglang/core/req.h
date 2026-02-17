@@ -1,8 +1,9 @@
 #pragma once
 
+#include <memory> 
+
 #include "sglang/messages/messages.h"
 #include <torch/torch.h>
-#include <memory>
 
 namespace sglang {
 

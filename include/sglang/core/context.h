@@ -1,8 +1,9 @@
 #pragma once
 
-#include "sglang/core/batch.h"
 #include <memory>
 #include <stdexcept>
+
+#include "sglang/core/batch.h"
 
 namespace sglang {
 

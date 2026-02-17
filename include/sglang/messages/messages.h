@@ -5,9 +5,7 @@
 namespace sglang {
 
 // Re-export specific message types if needed
-using GenerateReq = sglang::GenerateReq;
-using GenerateResp = sglang::GenerateResp;
-using SamplingParams = sglang::SamplingParams;
+// Redundant aliases removed as they conflict with protobuf generated classes in the same namespace
 
 // Helper function to check if sampling params indicate greedy decoding
 bool is_greedy(const SamplingParams& params);

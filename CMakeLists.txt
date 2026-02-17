@@ -17,13 +17,13 @@ find_package(Threads REQUIRED)
 # Protobuf generation
 # Protobuf generation
 set(PROTO_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
-set(PROTO_HDR_DIR ${CMAKE_CURRENT_BINARY_DIR}/proto)
-file(MAKE_DIRECTORY ${PROTO_HDR_DIR})
+set(PROTO_HDR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
+# file(MAKE_DIRECTORY ${PROTO_HDR_DIR}) # Directory already exists in source
 
 add_custom_command(
     OUTPUT ${PROTO_HDR_DIR}/sglang.pb.h ${PROTO_HDR_DIR}/sglang.pb.cc
     COMMAND ${Protobuf_PROTOC_EXECUTABLE}
-    ARGS --cpp_out ${CMAKE_CURRENT_BINARY_DIR} -I ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_SRC_DIR}/sglang.proto
+    ARGS --cpp_out ${CMAKE_CURRENT_SOURCE_DIR} -I ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_SRC_DIR}/sglang.proto
     DEPENDS ${PROTO_SRC_DIR}/sglang.proto
 )
 
@@ -32,7 +32,7 @@ set(PROTO_HDRS ${PROTO_HDR_DIR}/sglang.pb.h)
 
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_BINARY_DIR} # For generated proto headers
+    ${CMAKE_CURRENT_SOURCE_DIR} # For generated proto headers
     ${Protobuf_INCLUDE_DIRS}
 )
 
@@ -78,5 +78,5 @@ target_link_libraries(test_core_headers
 
 target_include_directories(test_core_headers PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_BINARY_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
