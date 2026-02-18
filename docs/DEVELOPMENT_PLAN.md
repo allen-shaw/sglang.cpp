@@ -8,7 +8,7 @@
 *   **1.1 核心定义 (`src/core`, `src/utils`, `src/message`)**
     *   **文件**: `req.h`, `batch.h`, `context.h`, `tensor_utils.h`, `sampling_params.h`
     *   **参考 Python 文件**: `minisgl/core.py`, `minisgl/env.py`, `minisgl/utils/*.py`
-    *   **任务**: 定义 `Req`, `Batch`, `SamplingParams` 等核心结构体，以及 API 消息格式。
+    *   **任务**: 定义 `Req`, `Batch`, `SamplingParams` 等核心结构体，以及 API 消息格式（使用 C++ 结构体）。
     *   **依赖**: 无（仅标准库和 LibTorch 头文件）。
     *   **测试**: 单元测试验证序列化/反序列化和张量工具函数。
 
@@ -77,8 +77,8 @@
 *   **6.2 HTTP 服务器 (`src/server`)**
     *   **文件**: `http_server.h`
     *   **参考 Python 文件**: `minisgl/server/*.py`
-    *   **任务**: 使用 `brpc` 实现 `/generate` 等 API 接口。
-    *   **依赖**: `engine`, `brpc`, `message`。
+    *   **任务**: 使用 `Cinatra` 实现 `/generate` 等 API 接口。
+    *   **依赖**: `engine`, `Cinatra`, `message`。
 
 ## 第七阶段：高级功能 (Advanced Features)
 **目标：** 扩展功能。

@@ -12,12 +12,12 @@ C++ 实现将紧密镜像 Python 架构，但会根据 C++ 习语（静态类型
 3.  **KVCache** (`sglang::kvcache`): 管理用于键值缓存块的 GPU 内存。
 4.  **Model** (`sglang::models`): 基于 LibTorch 的模型实现（例如 Llama, Qwen）。
 5.  **Context** (`sglang::global_context`): 线程局部或全局上下文。
-6.  **Server** (`sglang::server`): 使用 brpc 的 HTTP/RPC 服务器。
+6.  **Server** (`sglang::server`): 使用 Cinatra 的 HTTP 服务器。
 7.  **Layers** (`sglang::layers`): 基础构建块 (RoPE, Attention, Linear)。
 8.  **Kernels** (`sglang::kernels`): 自定义 CUDA 内核 (例如 Radix 匹配)。
 9.  **Tokenizer** (`sglang::tokenizer`): 文本编码/解码。
 10. **Distributed** (`sglang::distributed`): 多 GPU 支持 (占位符/未来规划)。
-11. **Messages** (`sglang::messages`): 用于 API 通信的数据结构，使用 **Protobuf** 定义 (`protos/sglang.proto`)。
+11. **Messages** (`sglang::messages`): 用于 API 通信的数据结构，使用标准 C++ 结构体定义并通过 JSON 序列化。
 12. **MoE** (`sglang::moe`): 混合专家 (Mixture-of-Experts) 实现。
 13. **LLM** (`sglang::llm`): 用于离线推理的高级 API。
 
@@ -27,8 +27,7 @@ C++ 实现将紧密镜像 Python 架构，但会根据 C++ 习语（静态类型
 ```text
 sglang.cpp/
     ├── CMakeLists.txt
-    ├── protos/
-    │   └── sglang.proto
+
     ├── include/
     │   └── sglang/
     │       ├── attention/
@@ -69,9 +68,8 @@ sglang.cpp/
 
 ## 4. 依赖项
 *   **LibTorch (PyTorch C++ API)**: 用于张量操作和神经网络模块。
-*   **brpc**: 提供高性能 RPC 和 HTTP 服务能力。
+*   **Cinatra**: 高性能、易用的 C++20 header-only HTTP 框架。
 *   **gflags**: 用于命令行参数解析。
 *   **glog**: 用于日志记录。
 *   **GTest**: 用于单元测试。
-*   **nlohmann/json** (可选): 用于配置解析 (倾向于使用 Protobuf 以获得严格模式)。
-*   **Protobuf**: 用于定义数据结构和 RPC 消息。
+*   **nlohmann/json**: 用于 JSON 序列化和配置解析。

@@ -12,12 +12,12 @@ The C++ implementation will closely mirror the Python architecture but adapted f
 3.  **KVCache** (`sglang::kvcache`): Manages GPU memory for Key-Value cache blocks.
 4.  **Model** (`sglang::models`): LibTorch-based model implementation (e.g., Llama, Qwen).
 5.  **Context** (`sglang::global_context`): Thread-local or global context.
-6.  **Server** (`sglang::server`): HTTP/RPC server using brpc.
+6.  **Server** (`sglang::server`): HTTP server using Cinatra.
 7.  **Layers** (`sglang::layers`): Basic building blocks (RoPE, Attention, Linear).
 8.  **Kernels** (`sglang::kernels`): Custom CUDA kernels (e.g., Radix matching).
 9.  **Tokenizer** (`sglang::tokenizer`): Text encoding/decoding.
 10. **Distributed** (`sglang::distributed`): Multi-GPU support (placeholder/future).
-11. **Messages** (`sglang::messages`): Data structures for API communication, defined using **Protobuf** (`protos/sglang.proto`).
+11. **Messages** (`sglang::messages`): Data structures for API communication, defined using standard C++ structs and serialized via JSON.
 12. **MoE** (`sglang::moe`): Mixture-of-Experts implementation.
 13. **LLM** (`sglang::llm`): High-level API for offline inference.
 
@@ -27,8 +27,7 @@ We will use a standard C++ project structure within the `sglang.cpp` root.
 ```text
 sglang.cpp/
     ├── CMakeLists.txt
-    ├── protos/
-    │   └── sglang.proto
+
     ├── include/
     │   └── sglang/
     │       ├── attention/
@@ -69,9 +68,8 @@ sglang.cpp/
 
 ## 4. Dependencies
 *   **LibTorch (PyTorch C++ API)**: For tensor operations and neural network modules.
-*   **brpc**: Provide high-performance RPC and HTTP server capabilities.
+*   **Cinatra**: High-performance, easy-to-use C++20 header-only HTTP framework.
 *   **gflags**: For command-line argument parsing.
 *   **glog**: For logging.
 *   **GTest**: For unit testing.
-*   **nlohmann/json** (Optional): For configuration parsing (Protobuf is preferred for strict schemas).
-*   **Protobuf**: For defining data structures and RPC messages.
+*   **nlohmann/json**: For JSON serialization and configuration parsing.

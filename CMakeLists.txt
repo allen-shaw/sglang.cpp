@@ -7,55 +7,38 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 
+# LibTorch
+set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;${CMAKE_PREFIX_PATH}")
+find_package(Torch REQUIRED)
+message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+include_directories(${TORCH_INCLUDE_DIRS})
+
 # Find dependencies
-# Find dependencies
-set(Protobuf_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/protobuf/lib/cmake/protobuf")
-find_package(Protobuf CONFIG REQUIRED)
-set(Protobuf_PROTOC_EXECUTABLE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/protobuf/bin/protoc")
 find_package(Threads REQUIRED)
 
-# Protobuf generation
-# Protobuf generation
-set(PROTO_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
-set(PROTO_HDR_DIR ${CMAKE_CURRENT_SOURCE_DIR}/proto)
-# file(MAKE_DIRECTORY ${PROTO_HDR_DIR}) # Directory already exists in source
-
-add_custom_command(
-    OUTPUT ${PROTO_HDR_DIR}/sglang.pb.h ${PROTO_HDR_DIR}/sglang.pb.cc
-    COMMAND ${Protobuf_PROTOC_EXECUTABLE}
-    ARGS --cpp_out ${CMAKE_CURRENT_SOURCE_DIR} -I ${CMAKE_CURRENT_SOURCE_DIR} ${PROTO_SRC_DIR}/sglang.proto
-    DEPENDS ${PROTO_SRC_DIR}/sglang.proto
-)
-
-set(PROTO_SRCS ${PROTO_HDR_DIR}/sglang.pb.cc)
-set(PROTO_HDRS ${PROTO_HDR_DIR}/sglang.pb.h)
-
-include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR} # For generated proto headers
-    ${Protobuf_INCLUDE_DIRS}
+# Core sources
+set(SGLANG_CORE_SRCS
+    src/core/req.cc
+    src/core/batch.cc
+    src/core/context.cc
+    src/core/sampling_params.cc
+    src/utils/tensor_utils.cc
 )
 
 add_executable(sglang_server
     src/main.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
+    ${SGLANG_CORE_SRCS}
 )
 
 target_link_libraries(sglang_server
-    protobuf::libprotobuf
     ${TORCH_LIBRARIES}
     Threads::Threads
 )
 
-# LibTorch
-# LibTorch
-set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;${CMAKE_PREFIX_PATH}")
-# LibTorch
-set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;${CMAKE_PREFIX_PATH}")
-find_package(Torch REQUIRED)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-include_directories(${TORCH_INCLUDE_DIRS})
+target_include_directories(sglang_server PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 
 # Use Torch's protobuf if available, or ensure consistency
 # For now, we rely on Torch's include dirs being first if they contain protobuf
@@ -66,13 +49,10 @@ include_directories(${TORCH_INCLUDE_DIRS})
 # Test target for headers
 add_executable(test_core_headers
     tests/core/test_headers.cpp
-    ${PROTO_SRCS}
-    ${PROTO_HDRS}
 )
 
 target_link_libraries(test_core_headers
     ${TORCH_LIBRARIES}
-    protobuf::libprotobuf
     Threads::Threads
 )
 
