@@ -1,6 +1,8 @@
 #pragma once
 
-#include <memory> 
+#include <memory>
+#include <sstream>
+#include <string>
 
 #include "sglang/core/sampling_params.h"
 #include <torch/torch.h>
@@ -14,7 +16,7 @@ namespace sglang {
 struct BaseCacheHandle;
 
 struct Req {
-    // Unique Request ID
+    // Unique Request ID (also referred to as 'uid' in Python)
     uint64_t req_id = 0;
 
     // Input IDs (CPU tensor)
@@ -46,8 +48,8 @@ struct Req {
     void complete_one();
     void append_host(const torch::Tensor& next_token);
 
-    // Factory method (optional, or just use constructor)
-    // static Req from_proto(const GenerateReq& proto_req, ...);
+    // Debug string representation
+    std::string toString() const;
 };
 
 } // namespace sglang

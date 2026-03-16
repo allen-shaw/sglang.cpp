@@ -3,6 +3,8 @@
 #include <memory>
 #include <stdexcept>
 
+#include <torch/torch.h>
+
 #include "sglang/core/batch.h"
 
 namespace sglang {
@@ -10,13 +12,20 @@ namespace sglang {
 // Forward declarations for backends
 struct BaseAttnBackend;
 struct BaseMoeBackend;
+struct BaseKVCachePool;
 
 struct Context {
     int page_size = 16;
+
+    // Page table (always treats page_size = 1 internally)
+    torch::Tensor page_table;
     
     // Backends
     std::shared_ptr<BaseAttnBackend> attn_backend;
     std::shared_ptr<BaseMoeBackend> moe_backend;
+
+    // KV Cache pool
+    std::shared_ptr<BaseKVCachePool> kv_cache;
 
     // Current active batch
     // Using simple pointer or shared_ptr. Python uses `_batch` and context manager.

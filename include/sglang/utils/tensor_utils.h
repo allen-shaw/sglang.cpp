@@ -22,4 +22,23 @@ torch::Tensor vec_to_tensor(const std::vector<T>& vec, torch::Device device = to
     return torch::tensor(vec, options);
 }
 
+// RAII guard for temporarily changing the default torch dtype.
+// Matches Python's torch_dtype context manager.
+class TorchDtypeGuard {
+ public:
+  explicit TorchDtypeGuard(torch::Dtype dtype)
+      : old_dtype_(torch::get_default_dtype()) {
+    torch::set_default_dtype(torch::scalarTypeToTypeMeta(dtype));
+  }
+  ~TorchDtypeGuard() {
+    torch::set_default_dtype(old_dtype_);
+  }
+
+  TorchDtypeGuard(const TorchDtypeGuard&) = delete;
+  TorchDtypeGuard& operator=(const TorchDtypeGuard&) = delete;
+
+ private:
+  caffe2::TypeMeta old_dtype_;
+};
+
 } // namespace sglang

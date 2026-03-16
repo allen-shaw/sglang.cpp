@@ -44,4 +44,13 @@ void Req::append_host(const torch::Tensor& next_token) {
   input_ids = torch::cat({input_ids, next_token.to(input_ids.device())});
 }
 
+std::string Req::toString() const {
+  std::ostringstream oss;
+  oss << "Req(table_idx=" << table_idx
+      << ", cached_len=" << cached_len
+      << ", device_len=" << device_len()
+      << ", max_device_len=" << max_device_len() << ")";
+  return oss.str();
+}
+
 } // namespace sglang
