@@ -28,6 +28,9 @@ set(SGLANG_CORE_SRCS
     src/core/sampling_params.cc
     src/utils/tensor_utils.cc
     src/message/message.cc
+    src/kernels/radix.cc
+    src/kvcache/radix_tree.cc
+    src/kvcache/cache_manager.cc
 )
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
@@ -93,6 +96,20 @@ add_test(NAME TestTensorUtils COMMAND test_tensor_utils)
 add_executable(test_message tests/message/test_message.cpp)
 target_link_libraries(test_message PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestMessage COMMAND test_message)
+
+# KV Cache tests
+add_executable(test_radix_tree tests/kvcache/test_radix_tree.cpp)
+target_link_libraries(test_radix_tree PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestRadixTree COMMAND test_radix_tree)
+
+add_executable(test_cache_manager tests/kvcache/test_cache_manager.cpp)
+target_link_libraries(test_cache_manager PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestCacheManager COMMAND test_cache_manager)
+
+# Kernel tests
+add_executable(test_radix_kernel tests/kernels/test_radix.cpp)
+target_link_libraries(test_radix_kernel PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestRadixKernel COMMAND test_radix_kernel)
 
 # Legacy header compilation test
 add_executable(test_core_headers tests/core/test_headers.cpp)

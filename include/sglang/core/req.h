@@ -5,15 +5,10 @@
 #include <string>
 
 #include "sglang/core/sampling_params.h"
+#include "sglang/kvcache/base.h"
 #include <torch/torch.h>
 
 namespace sglang {
-
-// Forward declaration for CacheHandle (to be defined in kvcache)
-// Using void* for now as per plan, or a forward declared struct if we assume the name.
-// "BaseCacheHandle" is the python name. C++ side might be generic or specific.
-// Let's use a forward declared struct.
-struct BaseCacheHandle;
 
 struct Req {
     // Unique Request ID (also referred to as 'uid' in Python)

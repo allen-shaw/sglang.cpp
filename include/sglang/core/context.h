@@ -1,18 +1,17 @@
 #pragma once
 
 #include <memory>
-#include <stdexcept>
 
 #include <torch/torch.h>
 
+#include "sglang/attention/backend.h"
 #include "sglang/core/batch.h"
+#include "sglang/kvcache/base.h"
 
 namespace sglang {
 
-// Forward declarations for backends
-struct BaseAttnBackend;
+// Forward declaration for MOE backend (to be defined later)
 struct BaseMoeBackend;
-struct BaseKVCachePool;
 
 struct Context {
     int page_size = 16;

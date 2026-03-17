@@ -1,18 +1,17 @@
 #pragma once
 
 #include "sglang/core/req.h"
+#include "sglang/attention/backend.h"
+#include <cstdint>
 #include <vector>
 #include <torch/torch.h>
 
 namespace sglang {
 
-enum class BatchPhase {
+enum class BatchPhase : std::uint8_t {
     Prefill,
     Decode
 };
-
-// Forward declaration for AttnMetadata
-struct BaseAttnMetadata;
 
 struct Batch {
     std::vector<std::shared_ptr<Req>> reqs;
