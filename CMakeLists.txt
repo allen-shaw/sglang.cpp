@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(sglang_cpp CXX)
+project(sglang_cpp CXX CUDA)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,6 +19,19 @@ include_directories(${TORCH_INCLUDE_DIRS})
 find_package(Threads REQUIRED)
 
 # ============================================================
+# FlashInfer (fetched via FetchContent)
+# ============================================================
+include(FetchContent)
+FetchContent_Declare(
+    flashinfer
+    GIT_REPOSITORY https://github.com/flashinfer-ai/flashinfer.git
+    GIT_TAG        v0.2.0.post1
+)
+FetchContent_GetProperties(flashinfer)
+if(NOT flashinfer_POPULATED)
+  FetchContent_Populate(flashinfer)
+endif()
+# ============================================================
 # Core static library (shared by server and tests)
 # ============================================================
 set(SGLANG_CORE_SRCS
@@ -31,6 +44,12 @@ set(SGLANG_CORE_SRCS
     src/kernels/radix.cc
     src/kvcache/radix_tree.cc
     src/kvcache/cache_manager.cc
+    src/layers/activation.cu
+    src/layers/normalization.cu
+    src/layers/rotary_embedding.cu
+    src/layers/linear.cc
+    src/layers/embedding.cc
+    src/layers/attention_layer.cc
 )
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
@@ -42,6 +61,7 @@ target_link_libraries(sglang_core PUBLIC
 
 target_include_directories(sglang_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${flashinfer_SOURCE_DIR}/include
 )
 
 # ============================================================
@@ -113,4 +133,30 @@ add_test(NAME TestRadixKernel COMMAND test_radix_kernel)
 
 # Legacy header compilation test
 add_executable(test_core_headers tests/core/test_headers.cpp)
-target_link_libraries(test_core_headers PRIVATE sglang_core)
+target_link_libraries(test_core_headers PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestCoreHeaders COMMAND test_core_headers)
+
+# Phase 3
+add_executable(test_activation tests/layers/test_activation.cpp)
+target_link_libraries(test_activation PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestActivation COMMAND test_activation)
+
+add_executable(test_normalization tests/layers/test_normalization.cpp)
+target_link_libraries(test_normalization PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestNormalization COMMAND test_normalization)
+
+add_executable(test_rotary_embedding tests/layers/test_rotary_embedding.cpp)
+target_link_libraries(test_rotary_embedding PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestRotaryEmbedding COMMAND test_rotary_embedding)
+
+add_executable(test_linear tests/layers/test_linear.cpp)
+target_link_libraries(test_linear PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestLinear COMMAND test_linear)
+
+add_executable(test_embedding tests/layers/test_embedding.cpp)
+target_link_libraries(test_embedding PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestEmbedding COMMAND test_embedding)
+
+add_executable(test_attention_layer tests/layers/test_attention_layer.cpp)
+target_link_libraries(test_attention_layer PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestAttentionLayer COMMAND test_attention_layer)
