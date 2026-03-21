@@ -32,6 +32,20 @@ if(NOT flashinfer_POPULATED)
   FetchContent_Populate(flashinfer)
 endif()
 # ============================================================
+# tokenizers-cpp (fetched via FetchContent)
+# ============================================================
+FetchContent_Declare(
+    tokenizers_cpp
+    GIT_REPOSITORY https://github.com/mlc-ai/tokenizers-cpp.git
+    GIT_TAG        main
+)
+FetchContent_GetProperties(tokenizers_cpp)
+if(NOT tokenizers_cpp_POPULATED)
+  FetchContent_Populate(tokenizers_cpp)
+  add_subdirectory(${tokenizers_cpp_SOURCE_DIR} ${tokenizers_cpp_BINARY_DIR} EXCLUDE_FROM_ALL)
+endif()
+
+# ============================================================
 # Core static library (shared by server and tests)
 # ============================================================
 set(SGLANG_CORE_SRCS
@@ -50,18 +64,21 @@ set(SGLANG_CORE_SRCS
     src/layers/linear.cc
     src/layers/embedding.cc
     src/layers/attention_layer.cc
+    src/tokenizer/hf_tokenizer.cc
 )
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
 
 target_link_libraries(sglang_core PUBLIC
     ${TORCH_LIBRARIES}
+    tokenizers_cpp
     Threads::Threads
 )
 
 target_include_directories(sglang_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${flashinfer_SOURCE_DIR}/include
+    ${tokenizers_cpp_SOURCE_DIR}/include
 )
 
 # ============================================================
@@ -136,6 +153,11 @@ add_executable(test_core_headers tests/core/test_headers.cpp)
 target_link_libraries(test_core_headers PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestCoreHeaders COMMAND test_core_headers)
 
+# Phase 3.2 Tokenizer
+add_executable(test_tokenizer tests/tokenizer/test_tokenizer.cpp)
+target_link_libraries(test_tokenizer PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestTokenizer COMMAND test_tokenizer)
+
 # Phase 3
 add_executable(test_activation tests/layers/test_activation.cpp)
 target_link_libraries(test_activation PRIVATE sglang_core GTest::gtest_main)
@@ -160,3 +182,5 @@ add_test(NAME TestEmbedding COMMAND test_embedding)
 add_executable(test_attention_layer tests/layers/test_attention_layer.cpp)
 target_link_libraries(test_attention_layer PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestAttentionLayer COMMAND test_attention_layer)
+
+
