@@ -9,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(TORCH_CUDA_ARCH_LIST "8.9")
 
 # LibTorch
-set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;${CMAKE_PREFIX_PATH}")
+set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;/home/allen/miniconda3/lib/python3.12/site-packages/torch/share/cmake;${CMAKE_PREFIX_PATH}")
 find_package(Torch REQUIRED)
 message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
@@ -65,6 +65,12 @@ set(SGLANG_CORE_SRCS
     src/layers/embedding.cc
     src/layers/attention_layer.cc
     src/tokenizer/hf_tokenizer.cc
+    src/models/utils.cc
+    src/models/llama.cc
+    src/models/qwen.cc
+    src/models/mistral.cc
+    src/models/qwen3_moe.cc
+    src/moe/moe.cc
 )
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
@@ -183,4 +189,23 @@ add_executable(test_attention_layer tests/layers/test_attention_layer.cpp)
 target_link_libraries(test_attention_layer PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestAttentionLayer COMMAND test_attention_layer)
 
+add_executable(test_llama tests/models/test_llama.cpp)
+target_link_libraries(test_llama PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestLlama COMMAND test_llama)
+
+add_executable(test_mistral tests/models/test_mistral.cpp)
+target_link_libraries(test_mistral PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestMistral COMMAND test_mistral)
+
+add_executable(test_qwen tests/models/test_qwen.cpp)
+target_link_libraries(test_qwen PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestQwen COMMAND test_qwen)
+
+add_executable(test_qwen3_moe tests/models/test_qwen3_moe.cpp)
+target_link_libraries(test_qwen3_moe PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestQwen3MoE COMMAND test_qwen3_moe)
+
+add_executable(test_moe tests/moe/test_moe.cpp)
+target_link_libraries(test_moe PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestMoE COMMAND test_moe)
 

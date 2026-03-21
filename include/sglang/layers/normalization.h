@@ -8,10 +8,9 @@ class RMSNorm {
     RMSNorm(int size, float eps);
     torch::Tensor forward(const torch::Tensor& x);
     void forward_inplace(torch::Tensor& x);
-
+    torch::Tensor weight;
  private:
     float eps_;
-    torch::Tensor weight_;
 };
 
 }  // namespace sglang
