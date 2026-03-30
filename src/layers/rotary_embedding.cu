@@ -6,6 +6,23 @@ namespace sglang {
 
 RotaryEmbedding::RotaryEmbedding(int head_size, int rotary_dim, int max_position_embeddings, float base)
     : head_size_(head_size), rotary_dim_(rotary_dim), max_position_embeddings_(max_position_embeddings), base_(base) {
+    
+    // Precompute cos/sin cache (matching Python rotary.py)
+    // inv_freq = 1.0 / (base ^ (arange(0, rotary_dim, 2) / rotary_dim))
+    auto inv_freq = 1.0 / torch::pow(
+        base,
+        torch::arange(0, rotary_dim, 2, torch::kFloat32) / static_cast<float>(rotary_dim)
+    );
+    
+    // t = arange(max_position_embeddings)
+    auto t = torch::arange(max_position_embeddings, torch::kFloat32);
+    
+    // freqs = outer(t, inv_freq) -> [max_pos, rotary_dim/2]
+    auto freqs = torch::einsum("i,j->ij", {t, inv_freq});
+    
+    // cos/sin cache stored on CPU first, will be moved to CUDA when needed
+    cos_cache_ = freqs.cos().contiguous();   // [max_pos, rotary_dim/2]
+    sin_cache_ = freqs.sin().contiguous();   // [max_pos, rotary_dim/2]
 }
 
 void RotaryEmbedding::forward_inplace(
@@ -55,6 +72,18 @@ void RotaryEmbedding::forward_inplace(
             false, stream
         );
     }
+}
+
+void RotaryEmbedding::forward_inplace(
+    torch::Tensor& positions, torch::Tensor& query, torch::Tensor& key) {
+
+    // Move cos/sin cache to the same device as query if needed (lazy)
+    if (!cos_cache_.is_cuda() && query.is_cuda()) {
+        cos_cache_ = cos_cache_.to(query.device());
+        sin_cache_ = sin_cache_.to(query.device());
+    }
+    
+    forward_inplace(positions, query, key, cos_cache_, sin_cache_);
 }
 
 }  // namespace sglang

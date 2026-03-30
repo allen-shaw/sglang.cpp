@@ -34,6 +34,10 @@ struct ModelConfig {
     bool is_moe() const {
         return model_type.find("moe") != std::string::npos;
     }
+
+    /// Load ModelConfig from a HuggingFace config.json file.
+    /// Requires nlohmann/json to be available.
+    static ModelConfig from_json_file(const std::string& path);
 };
 
 } // namespace sglang

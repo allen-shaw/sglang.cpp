@@ -44,6 +44,15 @@ if(NOT tokenizers_cpp_POPULATED)
   FetchContent_Populate(tokenizers_cpp)
   add_subdirectory(${tokenizers_cpp_SOURCE_DIR} ${tokenizers_cpp_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
+# ============================================================
+# nlohmann/json (header-only, for config parsing)
+# ============================================================
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+)
+FetchContent_MakeAvailable(nlohmann_json)
 
 # ============================================================
 # Core static library (shared by server and tests)
@@ -58,18 +67,23 @@ set(SGLANG_CORE_SRCS
     src/kernels/radix.cc
     src/kvcache/radix_tree.cc
     src/kvcache/cache_manager.cc
+    src/kvcache/mha_kvcache.cc
     src/layers/activation.cu
     src/layers/normalization.cu
     src/layers/rotary_embedding.cu
     src/layers/linear.cc
     src/layers/embedding.cc
     src/layers/attention_layer.cc
+    src/attention/flashinfer_backend.cu
     src/tokenizer/hf_tokenizer.cc
     src/models/utils.cc
     src/models/llama.cc
     src/models/qwen.cc
+    src/models/qwen3.cc
     src/models/mistral.cc
     src/models/qwen3_moe.cc
+    src/models/config.cc
+    src/models/weight_loader.cc
     src/moe/moe.cc
 )
 
@@ -78,6 +92,7 @@ add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
 target_link_libraries(sglang_core PUBLIC
     ${TORCH_LIBRARIES}
     tokenizers_cpp
+    nlohmann_json::nlohmann_json
     Threads::Threads
 )
 
@@ -85,6 +100,7 @@ target_include_directories(sglang_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${flashinfer_SOURCE_DIR}/include
     ${tokenizers_cpp_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/safetensors_cpp
 )
 
 # ============================================================
@@ -209,3 +225,6 @@ add_executable(test_moe tests/moe/test_moe.cpp)
 target_link_libraries(test_moe PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestMoE COMMAND test_moe)
 
+add_executable(test_qwen3_integration tests/models/test_qwen3_integration.cpp)
+target_link_libraries(test_qwen3_integration PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestQwen3Integration COMMAND test_qwen3_integration)

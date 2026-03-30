@@ -1,4 +1,5 @@
 #include "sglang/layers/attention_layer.h"
+#include "sglang/core/context.h"
 
 namespace sglang {
 
@@ -21,8 +22,8 @@ torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Ten
     auto k = splits[1];
     auto v = splits[2];
 
+    // Apply QK norm if present (Qwen3 uses this)
     if (q_norm_) {
-        // q_norm needs shape to be 2D, e.g. [..., head_dim] but it's applied on full heads.
         q_norm_->forward_inplace(q);
     }
     if (k_norm_) {
@@ -32,12 +33,22 @@ torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Ten
     auto q_view = q.view({-1, num_qo_heads_, head_dim_});
     auto k_view = k.view({-1, num_kv_heads_, head_dim_});
 
-    // We assume the cos_cache and sin_cache are passed globally or fetched via context,
-    // but the python implementation handles it via get_global_ctx().
-    // For now we assert false as it needs further wiring with Batch context.
-    TORCH_CHECK(false, "AttentionLayer::forward requires cos_cache and sin_cache wiring, which will be integrated in Phase 4");
+    // Apply RoPE using precomputed cos/sin cache
+    auto positions_mut = positions;  // need non-const for forward_inplace
+    rotary_->forward_inplace(positions_mut, q_view, k_view);
 
-    return torch::Tensor();
+    // Execute attention via global context's backend
+    // Python: o = ctx.attn_backend.forward(q, k, v, self.layer_id, ctx.batch)
+    auto ctx = get_global_ctx();
+    auto batch = ctx->get_batch();
+    TORCH_CHECK(batch, "AttentionLayer::forward requires an active batch in Context");
+    TORCH_CHECK(ctx->attn_backend, "AttentionLayer::forward requires attn_backend in Context");
+
+    auto o = ctx->attn_backend->forward(q_view, k, v, layer_id_, *batch);
+
+    // Output shape: [total_tokens, qo_attn_dim]
+    return o.view({-1, qo_attn_dim_});
 }
 
 }  // namespace sglang
+

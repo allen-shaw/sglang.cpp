@@ -9,8 +9,11 @@
 // #include "sglang/moe/moe.h"  // Forward declare for now
 
 namespace sglang {
-
-class MoELayer; // Forward declaration
+class MoELayer : public torch::nn::Module {
+ public:
+    MoELayer(int num_experts, int num_experts_per_tok, int hidden_size, int intermediate_size, bool norm_topk_prob) {}
+    torch::Tensor forward(const torch::Tensor& hidden_states, const torch::Tensor& router_logits) { return hidden_states; }
+}; // Dummy implementation
 
 class GatedMLP : public torch::nn::Module {
  public:
