@@ -18,9 +18,9 @@ AttentionLayer::AttentionLayer(int layer_id, int num_qo_heads, int num_kv_heads,
 torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Tensor& positions) {
     // qkv is expected to be [total_tokens, qo_attn_dim + 2 * kv_attn_dim]
     auto splits = qkv.split({qo_attn_dim_, kv_attn_dim_, kv_attn_dim_}, -1);
-    auto q = splits[0];
-    auto k = splits[1];
-    auto v = splits[2];
+    auto q = splits[0].contiguous();
+    auto k = splits[1].contiguous();
+    auto v = splits[2].contiguous();
 
     // Apply QK norm if present (Qwen3 uses this)
     if (q_norm_) {

@@ -4,7 +4,7 @@
 
 namespace sglang {
 
-class LinearBase {
+class LinearBase : public torch::nn::Module {
  public:
     LinearBase(int full_isize, int full_osize, int local_isize, int local_osize, bool has_bias);
     virtual ~LinearBase() = default;
@@ -20,7 +20,6 @@ class LinearBase {
     int full_output_size_;
     int local_input_size_;
     int local_output_size_;
-    // FIXME: Distributed communicator handle placeholder
 };
 
 class LinearReplicated : public LinearBase {

@@ -4,7 +4,7 @@
 
 namespace sglang {
 
-class VocabParallelEmbedding {
+class VocabParallelEmbedding : public torch::nn::Module {
  public:
     VocabParallelEmbedding(int num_embeddings, int embedding_dim);
     virtual ~VocabParallelEmbedding() = default;

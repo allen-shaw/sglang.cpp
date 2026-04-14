@@ -5,11 +5,15 @@
 namespace sglang {
 
 RMSNorm::RMSNorm(int size, float eps) : eps_(eps) {
-    weight = torch::ones({size}, torch::device(torch::kCUDA).dtype(torch::kFloat16));
+    weight = register_parameter(
+        "weight",
+        torch::ones({size}, torch::device(torch::kCUDA).dtype(torch::kFloat16))
+    );
 }
 
 torch::Tensor RMSNorm::forward(const torch::Tensor& x) {
     auto out = torch::empty_like(x);
+    out.copy_(x);
     forward_inplace(out);
     return out;
 }
@@ -18,7 +22,7 @@ void RMSNorm::forward_inplace(torch::Tensor& x) {
     TORCH_CHECK(x.is_cuda(), "x must be a CUDA tensor");
     uint32_t batch_size = x.size(0);
     uint32_t d = x.size(1);
-    
+
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     if (x.scalar_type() == torch::kFloat16) {

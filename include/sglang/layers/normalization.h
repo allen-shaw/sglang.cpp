@@ -3,7 +3,7 @@
 
 namespace sglang {
 
-class RMSNorm {
+class RMSNorm : public torch::nn::Module {
  public:
     RMSNorm(int size, float eps);
     torch::Tensor forward(const torch::Tensor& x);

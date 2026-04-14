@@ -13,7 +13,6 @@ set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;/home/allen
 find_package(Torch REQUIRED)
 message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
-include_directories(${TORCH_INCLUDE_DIRS})
 
 # Find dependencies
 find_package(Threads REQUIRED)
@@ -98,6 +97,7 @@ target_link_libraries(sglang_core PUBLIC
 
 target_include_directories(sglang_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${TORCH_INCLUDE_DIRS}
     ${flashinfer_SOURCE_DIR}/include
     ${tokenizers_cpp_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/safetensors_cpp

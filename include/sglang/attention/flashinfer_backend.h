@@ -9,18 +9,20 @@ class BaseKVCachePool;
 
 struct FlashInferAttnMetadata : public BaseAttnMetadata {
     bool is_prefill;
-    
-    // Request metadata
+
     std::vector<int> seq_lens;
     std::vector<int> cached_lens;
 
-    // FlashInfer required tensors
-    torch::Tensor indptr; // Used as qo_indptr in prefill, kv_indptr in decode
-    torch::Tensor indices; // Paged KV indices
-    torch::Tensor paged_kv_indptr; // For prefill
-    torch::Tensor paged_kv_last_page_len; 
+    std::vector<int32_t> qo_indptr_host;
+    std::vector<int32_t> kv_indptr_host;
+    std::vector<int32_t> indices_host;
+    std::vector<int32_t> last_page_len_host;
 
-    // Used for extracting last indices
+    torch::Tensor indptr;
+    torch::Tensor indices;
+    torch::Tensor paged_kv_indptr;
+    torch::Tensor paged_kv_last_page_len;
+
     torch::Tensor get_last_indices(int bs) const override;
 };
 
@@ -50,7 +52,6 @@ private:
     int num_kv_heads_;
     int head_dim_;
 
-    // Workspaces
     torch::Tensor float_workspace_;
     torch::Tensor int_workspace_;
     torch::Tensor pinned_int_workspace_;
