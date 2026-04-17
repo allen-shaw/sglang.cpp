@@ -1,6 +1,7 @@
 #include "sglang/models/config.h"
 
 #include <fstream>
+#include <type_traits>
 #include <nlohmann/json.hpp>
 
 namespace sglang {
@@ -44,6 +45,13 @@ ModelConfig ModelConfig::from_json_file(const std::string& path) {
     config.model_type = j.value("model_type", std::string(""));
     if (j.contains("architectures")) {
         config.architectures = j["architectures"].get<std::vector<std::string>>();
+    }
+    if (j.contains("eos_token_id")) {
+        if (j["eos_token_id"].is_number_integer()) {
+            config.eos_token_id = j["eos_token_id"].get<int>();
+        } else if (j["eos_token_id"].is_array() && !j["eos_token_id"].empty()) {
+            config.eos_token_id = j["eos_token_id"][0].get<int>();
+        }
     }
 
     // MoE fields (defaults for non-MoE models)

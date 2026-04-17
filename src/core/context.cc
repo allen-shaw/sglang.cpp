@@ -33,10 +33,11 @@ void Context::clear_batch() {
 }
 
 void set_global_ctx(std::shared_ptr<Context> ctx) {
-  if (g_global_ctx) {
-    throw std::runtime_error("Global context is already set");
-  }
   g_global_ctx = ctx;
+}
+
+void reset_global_ctx() {
+  g_global_ctx.reset();
 }
 
 std::shared_ptr<Context> get_global_ctx() {

@@ -40,6 +40,7 @@ struct Context {
 
 // Global Context Management
 void set_global_ctx(std::shared_ptr<Context> ctx);
+void reset_global_ctx();
 std::shared_ptr<Context> get_global_ctx();
 
 // RAII Guard for setting batch in context (similar to @contextmanager forward_batch)

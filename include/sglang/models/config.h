@@ -30,6 +30,7 @@ struct ModelConfig {
     bool norm_topk_prob;
     std::string model_type;
     std::vector<std::string> architectures;
+    int eos_token_id = -1;
 
     bool is_moe() const {
         return model_type.find("moe") != std::string::npos;

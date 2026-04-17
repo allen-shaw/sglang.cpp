@@ -23,8 +23,15 @@ struct Req {
     // Length of the sequence currently cached
     int cached_len = 0;
 
-    // Expected output length (max new tokens)
+    // Requested output length (max new tokens)
     int output_len = 0;
+
+    // Runtime lengths tracked independently from host-side input_ids.
+    int device_len_ = -1;
+    int max_device_len_ = -1;
+
+    // Chunked prefill requests should never enter decode scheduling.
+    bool is_chunked_prefill = false;
 
     // Sampling parameters
     SamplingParams sampling_params;
@@ -38,6 +45,8 @@ struct Req {
     int remain_len() const;
     int extend_len() const;
     bool can_decode() const;
+    void initialize_runtime_state();
+    void validate_runtime_state() const;
 
     // State update methods
     void complete_one();

@@ -19,22 +19,24 @@ TEST(ReqTest, BasicProperties) {
   EXPECT_TRUE(req.can_decode());
 }
 
-TEST(ReqTest, CompleteOneDecrements) {
+TEST(ReqTest, CompleteOneAdvancesDeviceBeforeHostAppend) {
   Req req;
   req.input_ids = torch::tensor({1, 2, 3}, torch::kInt32);
   req.cached_len = 0;
   req.output_len = 2;
+  req.initialize_runtime_state();
 
-  // Simulate a decode step
+  req.complete_one();
+  EXPECT_EQ(req.cached_len, 3);
+  EXPECT_EQ(req.device_len(), 4);
+  EXPECT_EQ(req.remain_len(), 1);
+
   auto next_token = torch::tensor({10}, torch::kInt32);
   req.append_host(next_token);
-  req.complete_one();
-
   EXPECT_EQ(req.device_len(), 4);     // 3 + 1 appended
-  EXPECT_EQ(req.cached_len, 4);       // complete_one sets cached_len = device_len
-  EXPECT_EQ(req.output_len, 1);       // decremented from 2
+  EXPECT_EQ(req.cached_len, 3);       // append_host does not change cached_len
   EXPECT_EQ(req.remain_len(), 1);
-  EXPECT_EQ(req.extend_len(), 0);     // 4 - 4
+  EXPECT_EQ(req.extend_len(), 1);     // 4 - 3
   EXPECT_TRUE(req.can_decode());
 }
 
@@ -43,21 +45,36 @@ TEST(ReqTest, CanDecodeReturnsFalseWhenDone) {
   req.input_ids = torch::tensor({1}, torch::kInt32);
   req.cached_len = 0;
   req.output_len = 1;
+  req.initialize_runtime_state();
 
-  req.append_host(torch::tensor({2}, torch::kInt32));
   req.complete_one();
+  req.append_host(torch::tensor({2}, torch::kInt32));
 
-  EXPECT_EQ(req.output_len, 0);
   EXPECT_FALSE(req.can_decode());
 }
 
-TEST(ReqTest, AppendHostExtendsTensor) {
+TEST(ReqTest, AppendHostRequiresAdvancedDeviceLen) {
   Req req;
   req.input_ids = torch::tensor({1, 2, 3}, torch::kInt32);
+  req.output_len = 1;
+  req.initialize_runtime_state();
 
+  EXPECT_THROW(req.append_host(torch::tensor({4}, torch::kInt32)), c10::Error);
+  req.complete_one();
   req.append_host(torch::tensor({4}, torch::kInt32));
   EXPECT_EQ(req.input_ids.size(0), 4);
   EXPECT_EQ(req.input_ids[3].item<int>(), 4);
+}
+
+TEST(ReqTest, ChunkedPrefillNeverDecodes) {
+  Req req;
+  req.input_ids = torch::tensor({1, 2, 3}, torch::kInt32);
+  req.cached_len = 1;
+  req.output_len = 4;
+  req.is_chunked_prefill = true;
+  req.initialize_runtime_state();
+
+  EXPECT_FALSE(req.can_decode());
 }
 
 TEST(ReqTest, ToString) {

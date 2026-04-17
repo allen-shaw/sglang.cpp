@@ -2,24 +2,38 @@
 
 namespace sglang {
 
+void Req::initialize_runtime_state() {
+  if (device_len_ < 0) {
+    device_len_ = static_cast<int>(input_ids.size(0));
+  }
+  if (max_device_len_ < 0) {
+    max_device_len_ = device_len_ + output_len;
+  }
+  validate_runtime_state();
+}
+
+void Req::validate_runtime_state() const {
+  TORCH_CHECK(input_ids.dim() == 1, "Req::input_ids must be a 1D tensor");
+  TORCH_CHECK(input_ids.device().is_cpu(), "Req::input_ids must stay on CPU");
+  TORCH_CHECK(device_len_ >= 0, "Req::device_len must be initialized");
+  TORCH_CHECK(max_device_len_ >= device_len_,
+              "Req::max_device_len must be >= device_len");
+  TORCH_CHECK(cached_len >= 0 && cached_len <= device_len_,
+              "Req::cached_len must be within [0, device_len]");
+  TORCH_CHECK(input_ids.size(0) <= device_len_,
+              "Req::input_ids length cannot exceed device_len");
+}
+
 int Req::device_len() const {
-  return input_ids.size(0);
+  return device_len_ >= 0 ? device_len_ : static_cast<int>(input_ids.size(0));
 }
 
 int Req::max_device_len() const {
-  // Assuming output_len tracks the *remaining* tokens to be generated,
-  // or that we need a way to calculate total length.
-  // Given the structure, we'll assume max_len = current + remaining.
-  // If output_len is purely "requested new tokens" and never changes, this logic is flawed without a start_len.
-  // BUT, to match Python where max_device_len is constant:
-  // We'll treat `output_len` as the *remaining* output length in this C++ adaptation
-  // if we can't add fields.
-  // See append_host logic below.
-  return input_ids.size(0) + output_len;
+  return max_device_len_ >= 0 ? max_device_len_ : device_len() + output_len;
 }
 
 int Req::remain_len() const {
-  return output_len;
+  return max_device_len() - device_len();
 }
 
 int Req::extend_len() const {
@@ -27,21 +41,29 @@ int Req::extend_len() const {
 }
 
 bool Req::can_decode() const {
-  return output_len > 0;
+  return !is_chunked_prefill && remain_len() > 0;
 }
 
 void Req::complete_one() {
-  cached_len = device_len();
-  // NOTE: In Python complete_one increments device_len (implied by appending).
-  // Here, we update cached_len to match the new device_len.
-  // We also decrement output_len to reflect one less token needed.
-  if (output_len > 0) {
-    output_len--;
+  initialize_runtime_state();
+  cached_len = device_len_;
+  if (device_len_ < max_device_len_) {
+    ++device_len_;
   }
 }
 
 void Req::append_host(const torch::Tensor& next_token) {
+  TORCH_CHECK(next_token.dim() == 1, "Req::append_host expects a 1D tensor");
+  TORCH_CHECK(next_token.device().is_cpu(),
+              "Req::append_host expects a CPU tensor");
+  if (device_len_ < 0) {
+    initialize_runtime_state();
+  }
+  TORCH_CHECK(input_ids.size(0) + next_token.size(0) <= device_len_,
+              "Req::append_host cannot advance beyond device_len");
   input_ids = torch::cat({input_ids, next_token.to(input_ids.device())});
+  TORCH_CHECK(input_ids.size(0) <= device_len_,
+              "Req::append_host cannot advance beyond device_len");
 }
 
 std::string Req::toString() const {
@@ -49,7 +71,9 @@ std::string Req::toString() const {
   oss << "Req(table_idx=" << table_idx
       << ", cached_len=" << cached_len
       << ", device_len=" << device_len()
-      << ", max_device_len=" << max_device_len() << ")";
+      << ", max_device_len=" << max_device_len()
+      << ", is_chunked_prefill=" << (is_chunked_prefill ? "true" : "false")
+      << ")";
   return oss.str();
 }
 

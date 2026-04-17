@@ -84,6 +84,11 @@ set(SGLANG_CORE_SRCS
     src/models/config.cc
     src/models/weight_loader.cc
     src/moe/moe.cc
+    src/engine/config.cc
+    src/engine/engine.cc
+    src/scheduler/prefill.cc
+    src/scheduler/decode.cc
+    src/scheduler/scheduler.cc
 )
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
@@ -228,3 +233,19 @@ add_test(NAME TestMoE COMMAND test_moe)
 add_executable(test_qwen3_integration tests/models/test_qwen3_integration.cpp)
 target_link_libraries(test_qwen3_integration PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestQwen3Integration COMMAND test_qwen3_integration)
+
+add_executable(test_sampler tests/engine/test_sampler.cpp)
+target_link_libraries(test_sampler PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestSampler COMMAND test_sampler)
+
+add_executable(test_engine_e2e tests/engine/test_engine_e2e.cpp)
+target_link_libraries(test_engine_e2e PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestEngineE2E COMMAND test_engine_e2e)
+
+add_executable(test_scheduler_managers tests/scheduler/test_managers.cpp)
+target_link_libraries(test_scheduler_managers PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestSchedulerManagers COMMAND test_scheduler_managers)
+
+add_executable(test_scheduler_e2e tests/scheduler/test_scheduler_e2e.cpp)
+target_link_libraries(test_scheduler_e2e PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestSchedulerE2E COMMAND test_scheduler_e2e)

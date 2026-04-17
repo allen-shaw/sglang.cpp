@@ -40,10 +40,11 @@ void MHAKVCache::store_kv(const torch::Tensor& key, const torch::Tensor& val,
     // Reshape key/val to [num_tokens, kv_heads, head_dim] if needed
     auto k = key.dim() == 2 ? key.view({-1, kv_heads_, head_dim_}) : key;
     auto v = val.dim() == 2 ? val.view({-1, kv_heads_, head_dim_}) : val;
+    auto out_index = out_loc.to(torch::kInt64);
     
     // Use index_copy_ along dim 0 to scatter tokens into their cache slots
-    k_buf.index_copy_(0, out_loc, k);
-    v_buf.index_copy_(0, out_loc, v);
+    k_buf.index_copy_(0, out_index, k);
+    v_buf.index_copy_(0, out_index, v);
 }
 
 }  // namespace sglang
