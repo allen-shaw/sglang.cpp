@@ -41,6 +41,13 @@ std::string find_model_path() {
     return "";
 }
 
+bool contains_paris(std::string text) {
+    std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return text.find("paris") != std::string::npos || text.find("巴黎") != std::string::npos;
+}
+
 }  // namespace
 
 class Qwen3IntegrationTest : public ::testing::Test {
@@ -251,6 +258,8 @@ TEST_F(Qwen3IntegrationTest, TestPrefillForward) {
     // We check that logits are not all the same (model is actually computing)
     EXPECT_GT(last_logits.max().item<float>() - last_logits.min().item<float>(), 0.1f)
         << "Logits have no variance - model may not be computing correctly";
+    EXPECT_TRUE(contains_paris(predicted_text))
+        << "Expected next token to mention Paris/巴黎, got: " << predicted_text;
 
     std::cout << "Prefill forward pass completed successfully!" << std::endl;
 }
@@ -372,8 +381,9 @@ TEST_F(Qwen3IntegrationTest, TestGreedyGeneration) {
     // Verify output is reasonable
     EXPECT_GT(token_ids.size(), static_cast<size_t>(prompt_len))
         << "No new tokens were generated";
+    EXPECT_TRUE(contains_paris(generated_text))
+        << "Expected generated text to mention Paris/巴黎, got: " << generated_text;
 
-    // The output should contain something about Paris (greedy generation is deterministic)
     std::string lower_text = generated_text;
     std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
     

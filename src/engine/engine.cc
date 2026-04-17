@@ -78,6 +78,27 @@ torch::Tensor sample_row(torch::Tensor logits,
     return torch::multinomial(probs, 1);
 }
 
+torch::Tensor select_sampling_logits(const Batch& batch, const torch::Tensor& logits) {
+    if (!batch.is_prefill()) {
+        return logits.slice(0, 0, batch.size());
+    }
+
+    std::vector<int64_t> last_indices;
+    last_indices.reserve(batch.reqs.size());
+    int64_t offset = 0;
+    for (size_t i = 0; i < batch.reqs.size(); ++i) {
+        const auto& req = batch.reqs[i];
+        const int64_t extend_len = req->extend_len();
+        TORCH_CHECK(extend_len > 0, "Prefill req must have positive extend_len");
+        last_indices.push_back(offset + extend_len - 1);
+        offset += extend_len;
+    }
+
+    return logits.index_select(
+        0,
+        torch::tensor(last_indices, torch::TensorOptions().dtype(torch::kInt64).device(logits.device())));
+}
+
 }  // namespace
 
 void ForwardOutput::synchronize() const {
@@ -295,11 +316,13 @@ ForwardOutput Engine::forward_batch(Batch& batch, const BatchSamplingArgs& args)
         logits = model_runner_.forward(model_input_ids, batch.positions);
     }
 
+    auto sampling_logits = select_sampling_logits(batch, logits);
+
     for (const auto& req : batch.reqs) {
         req->complete_one();
     }
 
-    auto sampled = sampler_.sample(logits.slice(0, 0, batch.size()), args).to(torch::kInt32);
+    auto sampled = sampler_.sample(sampling_logits, args).to(torch::kInt32);
     auto next_tokens_cpu = sampled.cpu();
     auto event = std::make_shared<at::cuda::CUDAEvent>();
     event->record(stream_);

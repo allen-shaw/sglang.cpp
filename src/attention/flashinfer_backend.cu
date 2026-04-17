@@ -1,7 +1,9 @@
 #include "sglang/attention/flashinfer_backend.h"
 #include "sglang/core/batch.h"
+#include "sglang/core/context.h"
 #include "sglang/kvcache/base.h"
 
+#include <algorithm>
 #include <flashinfer/attention/decode_params.cuh>
 #include <flashinfer/attention/decode.cuh>
 #include <flashinfer/attention/scheduler.cuh>
@@ -34,33 +36,52 @@ void FlashInferBackend::prepare_metadata(Batch& batch) {
 
     int batch_size = batch.padded_reqs.size();
     auto device = kv_cache_->device();
+    auto page_table = get_global_ctx()->page_table;
 
     std::vector<int32_t> qo_lens;
     std::vector<int32_t> kv_lens;
+    std::vector<torch::Tensor> page_table_slices;
+    page_table_slices.reserve(batch_size);
 
     for (const auto& req : batch.padded_reqs) {
         qo_lens.push_back(std::max(1, req->extend_len()));
         kv_lens.push_back(req->device_len());
         metadata->seq_lens.push_back(req->device_len());
         metadata->cached_lens.push_back(req->cached_len);
-
-        for (int i = 0; i < req->device_len(); ++i) {
-            metadata->indices_host.push_back(i);
-        }
+        page_table_slices.push_back(page_table[req->table_idx].slice(0, 0, req->device_len()));
     }
+
+    if (!page_table_slices.empty()) {
+        metadata->indices = torch::cat(page_table_slices).to(torch::kInt32).contiguous();
+    } else {
+        metadata->indices =
+            torch::empty({0}, torch::TensorOptions().dtype(torch::kInt32).device(device));
+    }
+
+    const bool all_no_cache_hit = std::all_of(
+        metadata->cached_lens.begin(), metadata->cached_lens.end(), [](int cached_len) {
+            return cached_len == 0;
+        });
 
     metadata->qo_indptr_host = {0};
     metadata->kv_indptr_host = {0};
-    for (int len : qo_lens) {
-        metadata->qo_indptr_host.push_back(metadata->qo_indptr_host.back() + len);
-    }
     for (int len : kv_lens) {
         metadata->kv_indptr_host.push_back(metadata->kv_indptr_host.back() + len);
+    }
+    if (batch.is_decode()) {
+        for (int i = 0; i < batch_size; ++i) {
+            metadata->qo_indptr_host.push_back(metadata->qo_indptr_host.back() + 1);
+        }
+    } else if (all_no_cache_hit) {
+        metadata->qo_indptr_host = metadata->kv_indptr_host;
+    } else {
+        for (int len : qo_lens) {
+            metadata->qo_indptr_host.push_back(metadata->qo_indptr_host.back() + len);
+        }
     }
 
     metadata->last_page_len_host.assign(batch_size, 1);
 
-    metadata->indices = torch::tensor(metadata->indices_host, torch::TensorOptions().dtype(torch::kInt32).device(device));
     metadata->indptr = torch::tensor(metadata->is_prefill ? metadata->qo_indptr_host : metadata->kv_indptr_host,
                                      torch::TensorOptions().dtype(torch::kInt32).device(device));
     if (metadata->is_prefill) {

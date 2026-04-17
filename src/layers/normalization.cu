@@ -20,8 +20,12 @@ torch::Tensor RMSNorm::forward(const torch::Tensor& x) {
 
 void RMSNorm::forward_inplace(torch::Tensor& x) {
     TORCH_CHECK(x.is_cuda(), "x must be a CUDA tensor");
-    uint32_t batch_size = x.size(0);
-    uint32_t d = x.size(1);
+    TORCH_CHECK(x.dim() >= 2, "RMSNorm expects tensor rank >= 2");
+    TORCH_CHECK(x.size(-1) > 0, "RMSNorm last dimension must be positive");
+    const auto d = static_cast<uint32_t>(x.size(-1));
+    TORCH_CHECK(weight.size(0) == static_cast<int64_t>(d),
+                "RMSNorm weight size must match last dimension");
+    const auto batch_size = static_cast<uint32_t>(x.numel() / x.size(-1));
 
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 

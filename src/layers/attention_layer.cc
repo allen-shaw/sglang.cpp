@@ -22,16 +22,16 @@ torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Ten
     auto k = splits[1].contiguous();
     auto v = splits[2].contiguous();
 
-    // Apply QK norm if present (Qwen3 uses this)
-    if (q_norm_) {
-        q_norm_->forward_inplace(q);
-    }
-    if (k_norm_) {
-        k_norm_->forward_inplace(k);
-    }
-
     auto q_view = q.view({-1, num_qo_heads_, head_dim_});
     auto k_view = k.view({-1, num_kv_heads_, head_dim_});
+
+    // Apply QK norm if present (Qwen3 uses this)
+    if (q_norm_) {
+        q_norm_->forward_inplace(q_view);
+    }
+    if (k_norm_) {
+        k_norm_->forward_inplace(k_view);
+    }
 
     // Apply RoPE using precomputed cos/sin cache
     auto positions_mut = positions;  // need non-const for forward_inplace
@@ -51,4 +51,3 @@ torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Ten
 }
 
 }  // namespace sglang
-
