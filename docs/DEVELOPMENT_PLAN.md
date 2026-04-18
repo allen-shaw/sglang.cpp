@@ -65,6 +65,31 @@
     *   **参考 Python 文件**: `minisgl/engine/*.py`
     *   **任务**: 实现 `Engine::forward_batch`，连接调度器和模型。
     *   **依赖**: `scheduler`, `models`.
+*   **5.3 测试与验证 (`tests/engine`, `tests/scheduler`, `tests/models`)**
+    *   **目标**: 在阶段 5 先建立稳定的功能回归，再逐步补充并发和资源压力测试。
+    *   **基础功能测试**:
+        *   `Engine` 单请求端到端: 从 prefill 开始，完成一轮 decode，验证请求状态推进与生成 token 数量。
+        *   `Scheduler` 单请求端到端: 从 `submit()` 发起请求，完成一轮完整推理，验证 `DetokenizeMsg` 和 finished 语义。
+        *   真实模型 `Qwen3` Prefill Forward: 输入 `"The capital of France is"`，验证最后一个位置的 next token 能生成 `Paris/巴黎`。
+        *   真实模型 `Qwen3` Greedy Generation: 生成结果文本需包含 `Paris/巴黎`，用于兜住模型层与采样层的基本正确性。
+        *   真实模型 `Scheduler` smoke test: 输入自然语言 prompt，例如 `"What is the capital of France?"`，打印生成结果并验证输出包含 `Paris/巴黎`。
+    *   **当前优先补充的多请求/并发测试**:
+        *   两个请求同一时刻提交并全部完成。
+        *   一个请求进入 decode 后，第二个请求再提交，验证错峰到达不会饿死。
+        *   不同 `max_new_tokens` 的请求独立结束，短请求可先回收，长请求继续 decode。
+        *   pending request abort。
+        *   running decode request abort。
+        *   prefill budget 不足时触发 chunked prefill，并最终完成。
+        *   decode 中插入 chunked prefill，验证调度状态机正确。
+        *   共享 prefix 的请求复用 radix cache，避免不必要的初始 chunking。
+        *   顺序批次之间的 running slot / page table 资源可复用。
+        *   真实模型双请求 smoke test，例如同时询问 France/Germany 首都，验证不同请求输出不串扰。
+    *   **后续再补充的压力/一致性测试**:
+        *   多个长 prompt 同时进入，制造 cache pressure，验证 eviction 后仍能推进。
+        *   prefix cache 命中与 abort 混合场景。
+        *   overlap scheduling 打开/关闭时结果一致性。
+        *   更多真实模型多请求 case，例如 3 个以上 prompt 同时生成。
+        *   CUDA graph 打开后的 batch 行为与关闭路径一致。
 
 ## 第六阶段：服务与接口 (Interface Layer)
 **目标：** 对外暴露服务接口。
