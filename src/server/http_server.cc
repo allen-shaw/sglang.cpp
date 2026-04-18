@@ -174,6 +174,9 @@ void ApiServer::stop() {
   if (scheduler_runner_) {
     scheduler_runner_->stop();
   }
+  tokenizer_pool_.reset();
+  frontend_.reset();
+  scheduler_runner_.reset();
 }
 
 GenerateTextResult ApiServer::handle_generate(const GenerateHttpRequest& request) {

@@ -77,20 +77,26 @@ Scheduler::Scheduler(const SchedulerConfig& config)
       prefill_manager_(cache_manager_, table_manager_, decode_manager_),
       prefill_budget_(config.max_extend_tokens) {}
 
-void Scheduler::submit(const GenerateRequest& request) {
-    auto normalized = request;
-    normalized.input_ids = request.input_ids.to(torch::kCPU).to(torch::kInt32).contiguous();
+void Scheduler::submit(GenerateRequest request) {
+    TORCH_CHECK(request.input_ids.device().is_cpu(),
+                "GenerateRequest.input_ids must be a CPU tensor");
+    TORCH_CHECK(request.input_ids.scalar_type() == torch::kInt32,
+                "GenerateRequest.input_ids must be int32");
+    TORCH_CHECK(request.input_ids.is_contiguous(),
+                "GenerateRequest.input_ids must be contiguous");
+    TORCH_CHECK(request.input_ids.dim() == 1,
+                "GenerateRequest.input_ids must be 1D");
 
-    const int input_len = static_cast<int>(normalized.input_ids.size(0));
+    const int input_len = static_cast<int>(request.input_ids.size(0));
     const int max_output_len = engine_.max_seq_len() - input_len;
-    if (max_output_len <= 0 || normalized.sampling_params.max_new_tokens <= 0) {
+    if (max_output_len <= 0 || request.sampling_params.max_new_tokens <= 0) {
         SGLANG_LOG_WARN("Dropping request due to invalid input/output lengths");
         return;
     }
-    if (normalized.sampling_params.max_new_tokens > max_output_len) {
-        normalized.sampling_params.max_new_tokens = max_output_len;
+    if (request.sampling_params.max_new_tokens > max_output_len) {
+        request.sampling_params.max_new_tokens = max_output_len;
     }
-    prefill_manager_.add_one_req(normalized);
+    prefill_manager_.add_one_req(std::move(request));
 }
 
 void Scheduler::abort(uint64_t uid) {

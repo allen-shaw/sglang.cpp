@@ -109,6 +109,8 @@ ServerArgs ServerArgsParser::parse(const std::vector<std::string>& args) {
       result.max_seq_len_override = parse_int(require_value(args, &i));
     } else if (arg == "--dummy-weight") {
       result.use_dummy_weight = true;
+    } else if (arg == "--disable-graph" || arg == "--disable-cuda-graph") {
+      result.enable_cuda_graph = false;
     } else if (arg == "--graph" || arg == "--cuda-graph-max-bs") {
       result.enable_cuda_graph = true;
       (void)require_value(args, &i);

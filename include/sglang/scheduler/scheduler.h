@@ -24,7 +24,7 @@ class Scheduler {
     explicit Scheduler(const SchedulerConfig& config);
     ~Scheduler() = default;
 
-    void submit(const GenerateRequest& request);
+    void submit(GenerateRequest request);
     void abort(uint64_t uid);
     std::vector<DetokenizeMsg> step();
     std::vector<DetokenizeMsg> run_until_idle();

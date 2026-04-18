@@ -317,10 +317,10 @@ PrefillManager::PrefillManager(CacheManager& cache_manager,
       table_manager_(table_manager),
       decode_manager_(decode_manager) {}
 
-void PrefillManager::add_one_req(const GenerateRequest& req) {
+void PrefillManager::add_one_req(GenerateRequest req) {
     pending_list_.push_back(PendingReq{
         req.uid,
-        req.input_ids.contiguous(),
+        std::move(req.input_ids),
         req.sampling_params,
         nullptr,
     });

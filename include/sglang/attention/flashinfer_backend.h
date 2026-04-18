@@ -1,7 +1,11 @@
 #pragma once
 
-#include "sglang/attention/backend.h"
+#include <memory>
+#include <unordered_map>
+
 #include <torch/torch.h>
+
+#include "sglang/attention/backend.h"
 
 namespace sglang {
 
@@ -22,6 +26,10 @@ struct FlashInferAttnMetadata : public BaseAttnMetadata {
     torch::Tensor indices;
     torch::Tensor paged_kv_indptr;
     torch::Tensor paged_kv_last_page_len;
+    torch::Tensor kv_indptr_host_tensor;
+    bool initialized = false;
+    bool use_capture_buffers = false;
+    std::shared_ptr<void> decode_plan_state;
 
     torch::Tensor get_last_indices(int bs) const override;
 };
@@ -41,12 +49,27 @@ public:
                           Batch& batch) override;
 
     void init_capture_graph(int max_seq_len,
-                            const std::vector<int>& bs_list) override {}
+                            const std::vector<int>& bs_list) override;
 
-    void prepare_for_capture(Batch& batch) override {}
-    void prepare_for_replay(Batch& batch) override {}
+    void prepare_for_capture(Batch& batch) override;
+    void prepare_for_replay(Batch& batch) override;
 
 private:
+    struct DecodeCaptureData {
+        int max_seq_len = 0;
+        int max_batch_size = 0;
+        std::vector<int> batch_sizes;
+        torch::Tensor kv_indptr_host;
+        torch::Tensor kv_indptr_device;
+        torch::Tensor indices;
+        torch::Tensor last_page_len;
+        std::unordered_map<int, std::shared_ptr<FlashInferAttnMetadata>> metadata;
+    };
+
+    torch::Tensor get_ones_cpu(int bs);
+    void initialize_decode_metadata_once(FlashInferAttnMetadata& metadata, int batch_size);
+    std::shared_ptr<FlashInferAttnMetadata> get_capture_metadata(int batch_size) const;
+
     std::shared_ptr<BaseKVCachePool> kv_cache_;
     int num_qo_heads_;
     int num_kv_heads_;
@@ -55,6 +78,8 @@ private:
     torch::Tensor float_workspace_;
     torch::Tensor int_workspace_;
     torch::Tensor pinned_int_workspace_;
+    torch::Tensor cached_ones_cpu_;
+    std::unique_ptr<DecodeCaptureData> decode_capture_;
 };
 
 } // namespace sglang

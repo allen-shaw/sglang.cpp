@@ -116,7 +116,7 @@ class PrefillManager {
                    TableManager& table_manager,
                    DecodeManager& decode_manager);
 
-    void add_one_req(const GenerateRequest& req);
+    void add_one_req(GenerateRequest req);
     std::shared_ptr<Batch> schedule_next_batch(int prefill_budget);
     std::shared_ptr<Req> abort_req(uint64_t uid);
     bool runnable() const;

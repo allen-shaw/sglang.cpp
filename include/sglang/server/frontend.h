@@ -45,12 +45,22 @@ struct RequestContext {
 
 class TokenizerWorkerPool {
  public:
+  using TokenizeDoneCallback = std::function<void(torch::Tensor)>;
+  using DetokenizeDoneCallback = std::function<void(std::vector<std::string>)>;
+  using ErrorCallback = std::function<void(std::exception_ptr)>;
+
   TokenizerWorkerPool(const std::string& tokenizer_json_path, int num_encode_threads);
   ~TokenizerWorkerPool();
 
   std::future<torch::Tensor> tokenize_async(TokenizeInput input,
                                             SamplingParams sampling_params);
   std::future<std::vector<std::string>> detokenize_async(std::vector<DetokenizeMsg> msgs);
+  void tokenize_dispatch(TokenizeInput input, SamplingParams sampling_params,
+                         TokenizeDoneCallback on_done,
+                         ErrorCallback on_error = {});
+  void detokenize_dispatch(std::vector<DetokenizeMsg> msgs,
+                           DetokenizeDoneCallback on_done,
+                           ErrorCallback on_error = {});
 
  private:
   template <typename Fn>

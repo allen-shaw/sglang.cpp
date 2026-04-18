@@ -58,6 +58,14 @@ SchedulerConfig make_test_scheduler_config() {
   return config;
 }
 
+SchedulerConfig make_test_scheduler_config_with_graph() {
+  auto config = make_test_scheduler_config();
+  config.enable_cuda_graph = true;
+  config.cuda_graph_batch_sizes = {1, 2, 4};
+  config.cuda_graph_max_batch_size = 4;
+  return config;
+}
+
 SchedulerConfig make_small_budget_scheduler_config(int max_extend_tokens,
                                                    int max_running_req = 4) {
   auto config = make_test_scheduler_config();
@@ -201,6 +209,22 @@ TEST(SchedulerE2ETest, SingleRequestRunsToCompletion) {
 
   Scheduler scheduler(make_test_scheduler_config());
   auto request = make_request(/*uid=*/77, {11, 22, 33}, /*max_new_tokens=*/3);
+
+  scheduler.submit(request);
+  auto replies = scheduler.run_until_idle();
+
+  ASSERT_EQ(replies.size(), 3);
+  EXPECT_FALSE(scheduler.has_work());
+  expect_request_finished(replies, request.uid, /*expected_tokens=*/3);
+}
+
+TEST(SchedulerE2ETest, SingleRequestRunsToCompletionWithCudaGraphDecode) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  Scheduler scheduler(make_test_scheduler_config_with_graph());
+  auto request = make_request(/*uid=*/78, {11, 22, 33}, /*max_new_tokens=*/3);
 
   scheduler.submit(request);
   auto replies = scheduler.run_until_idle();

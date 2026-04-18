@@ -70,6 +70,29 @@ TEST(ServerArgsTest, ShellModeTightensDefaults) {
   EXPECT_EQ(args.max_running_req, 1);
 }
 
+TEST(ServerArgsTest, CudaGraphFlagAndDisableFlagWork) {
+  auto default_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+  });
+  EXPECT_FALSE(default_args.enable_cuda_graph);
+
+  auto enabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--graph",
+      "1",
+  });
+  EXPECT_TRUE(enabled_args.enable_cuda_graph);
+
+  auto disabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--disable-graph",
+  });
+  EXPECT_FALSE(disabled_args.enable_cuda_graph);
+}
+
 TEST(ServerArgsTest, ToSchedulerConfigMapsFields) {
   ServerArgs args;
   args.model_path = "/tmp/model";
