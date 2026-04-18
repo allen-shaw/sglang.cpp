@@ -66,6 +66,22 @@ SchedulerConfig make_small_budget_scheduler_config(int max_extend_tokens,
   return config;
 }
 
+SchedulerConfig make_scaling_scheduler_config(int concurrency) {
+  auto config = make_test_scheduler_config();
+  config.max_running_req = concurrency;
+  config.max_extend_tokens = std::max(128, concurrency * 8);
+  config.max_seq_len_override = 16;
+  config.num_pages_override = std::max(64, concurrency * 32);
+  return config;
+}
+
+bool is_cuda_oom(const std::exception& error) {
+  const std::string message = error.what();
+  return message.find("out of memory") != std::string::npos ||
+         message.find("CUDA error: out of memory") != std::string::npos ||
+         message.find("CUDA out of memory") != std::string::npos;
+}
+
 std::string find_qwen3_model_path() {
   if (const char* env_path = std::getenv("QWEN3_MODEL_PATH")) {
     return std::string(env_path);
@@ -211,6 +227,28 @@ TEST(SchedulerE2ETest, TwoRequestsSameTickRunToCompletion) {
   EXPECT_FALSE(scheduler.has_work());
   expect_request_finished(replies, request_a.uid, /*expected_tokens=*/2);
   expect_request_finished(replies, request_b.uid, /*expected_tokens=*/3);
+}
+
+TEST(SchedulerE2ETest, ThreeRequestsSameTickRunToCompletion) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  Scheduler scheduler(make_test_scheduler_config());
+  auto request_a = make_request(/*uid=*/211, {1, 2, 3}, /*max_new_tokens=*/2);
+  auto request_b = make_request(/*uid=*/212, {4, 5, 6, 7}, /*max_new_tokens=*/3);
+  auto request_c = make_request(/*uid=*/213, {8, 9, 10}, /*max_new_tokens=*/1);
+
+  scheduler.submit(request_a);
+  scheduler.submit(request_b);
+  scheduler.submit(request_c);
+  auto replies = scheduler.run_until_idle();
+
+  ASSERT_EQ(replies.size(), 6);
+  EXPECT_FALSE(scheduler.has_work());
+  expect_request_finished(replies, request_a.uid, /*expected_tokens=*/2);
+  expect_request_finished(replies, request_b.uid, /*expected_tokens=*/3);
+  expect_request_finished(replies, request_c.uid, /*expected_tokens=*/1);
 }
 
 TEST(SchedulerE2ETest, StaggeredArrivalDuringDecodeStillCompletesBothRequests) {
@@ -526,6 +564,53 @@ TEST(SchedulerE2ETest, RealModelTwoRequestsAnswerDifferentCapitalQuestions) {
       << "Expected France answer to mention Paris/巴黎, got: " << france_text;
   EXPECT_TRUE(contains_expected_city(germany_text, "berlin", "柏林"))
       << "Expected Germany answer to mention Berlin/柏林, got: " << germany_text;
+}
+
+TEST(SchedulerE2ETest, ConcurrencySweepUpToOom) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  const std::vector<int> concurrency_levels = {8, 16, 64, 128};
+  int max_completed_concurrency = 0;
+
+  for (int concurrency : concurrency_levels) {
+    SCOPED_TRACE("scheduler_concurrency=" + std::to_string(concurrency));
+    try {
+      Scheduler scheduler(make_scaling_scheduler_config(concurrency));
+      for (int i = 0; i < concurrency; ++i) {
+        scheduler.submit(
+            make_request(/*uid=*/10000 + static_cast<uint64_t>(i),
+                         {1, 2, 3, static_cast<int32_t>(10 + (i % 13))},
+                         /*max_new_tokens=*/2));
+      }
+
+      auto replies = scheduler.run_until_idle();
+      ASSERT_EQ(replies.size(), static_cast<size_t>(concurrency * 2));
+      EXPECT_FALSE(scheduler.has_work());
+      for (int i = 0; i < concurrency; ++i) {
+        expect_request_finished(replies,
+                                /*uid=*/10000 + static_cast<uint64_t>(i),
+                                /*expected_tokens=*/2);
+      }
+      max_completed_concurrency = concurrency;
+      std::cout << "[scheduler sweep] completed concurrency=" << concurrency << std::endl;
+    } catch (const c10::Error& error) {
+      if (is_cuda_oom(error)) {
+        std::cout << "[scheduler sweep] hit OOM at concurrency=" << concurrency << std::endl;
+        break;
+      }
+      throw;
+    } catch (const std::runtime_error& error) {
+      if (is_cuda_oom(error)) {
+        std::cout << "[scheduler sweep] hit OOM at concurrency=" << concurrency << std::endl;
+        break;
+      }
+      throw;
+    }
+  }
+
+  EXPECT_GE(max_completed_concurrency, 8);
 }
 
 }  // namespace

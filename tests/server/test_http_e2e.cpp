@@ -4,6 +4,8 @@
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
+#include <iostream>
 #include <optional>
 #include <string>
 #include <thread>
@@ -45,6 +47,29 @@ bool contains_paris(std::string text) {
     return static_cast<char>(std::tolower(c));
   });
   return text.find("paris") != std::string::npos || text.find("巴黎") != std::string::npos;
+}
+
+bool contains_berlin(std::string text) {
+  std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return text.find("berlin") != std::string::npos || text.find("柏林") != std::string::npos;
+}
+
+bool is_cuda_oom(const std::exception& error) {
+  const std::string message = error.what();
+  return message.find("out of memory") != std::string::npos ||
+         message.find("CUDA error: out of memory") != std::string::npos ||
+         message.find("CUDA out of memory") != std::string::npos;
+}
+
+nlohmann::json parse_json_or_fail(const std::string& body) {
+  try {
+    return nlohmann::json::parse(body);
+  } catch (const std::exception& e) {
+    ADD_FAILURE() << "Failed to parse JSON body: " << e.what() << "\nRaw body:\n" << body;
+    throw;
+  }
 }
 
 bool is_expected_shutdown_exception(const std::exception_ptr& exception) {
@@ -135,6 +160,22 @@ std::optional<ServerArgs> make_real_server_args(int port) {
   args.page_size = 1;
   args.max_extend_tokens = 64;
   return args;
+}
+
+std::optional<ServerArgs> make_dummy_server_args(int port, int concurrency) {
+  auto maybe_args = make_real_server_args(port);
+  if (!maybe_args.has_value()) {
+    return std::nullopt;
+  }
+
+  maybe_args->num_tokenizer_threads = std::min(concurrency, 8);
+  maybe_args->max_running_req = concurrency;
+  maybe_args->memory_ratio = 0.01F;
+  maybe_args->max_extend_tokens = std::max(128, concurrency * 8);
+  maybe_args->num_pages_override = std::max(64, concurrency * 32);
+  maybe_args->max_seq_len_override = 64;
+  maybe_args->use_dummy_weight = true;
+  return maybe_args;
 }
 
 TEST(HttpE2ETest, GenerateEndpointAnswersFranceCapitalQuestion) {
@@ -285,6 +326,179 @@ TEST(HttpE2ETest, StreamingChatCompletionsMessagesEndsWithDoneAndMentionsParis) 
   EXPECT_TRUE(contains_paris(body)) << "Expected Paris/巴黎 in SSE body: " << body;
 
   server.stop();
+}
+
+TEST(HttpE2ETest, ConcurrentGenerateRequestsReturnIndependentAnswers) {
+  auto maybe_args = make_real_server_args(/*port=*/18085);
+  if (!maybe_args.has_value()) {
+    GTEST_SKIP() << "CUDA or Qwen3 model path is unavailable for HTTP E2E test";
+  }
+
+  maybe_args->max_running_req = 4;
+  ScopedApiServer server(*maybe_args);
+  server.start();
+
+  auto france_future = std::async(std::launch::async, []() {
+    nlohmann::json payload = {
+        {"prompt",
+         "Question: What is the capital of France?\nAnswer in one short sentence."},
+        {"max_tokens", 24},
+        {"ignore_eos", false},
+        {"stream", false},
+    };
+
+    cinatra::coro_http_client client;
+    return client.post("http://127.0.0.1:18085/generate", payload.dump(),
+                       cinatra::req_content_type::json);
+  });
+
+  auto germany_future = std::async(std::launch::async, []() {
+    nlohmann::json payload = {
+        {"prompt",
+         "Question: What is the capital of Germany?\nAnswer in one short sentence."},
+        {"max_tokens", 24},
+        {"ignore_eos", false},
+        {"stream", false},
+    };
+
+    cinatra::coro_http_client client;
+    return client.post("http://127.0.0.1:18085/generate", payload.dump(),
+                       cinatra::req_content_type::json);
+  });
+
+  auto france_response = france_future.get();
+  auto germany_response = germany_future.get();
+
+  ASSERT_FALSE(france_response.net_err) << france_response.net_err.message();
+  ASSERT_FALSE(germany_response.net_err) << germany_response.net_err.message();
+  ASSERT_EQ(france_response.status, 200);
+  ASSERT_EQ(germany_response.status, 200);
+
+  const auto france_body = parse_json_or_fail(std::string(france_response.resp_body));
+  const auto germany_body = parse_json_or_fail(std::string(germany_response.resp_body));
+  const auto france_text = france_body.at("text").get<std::string>();
+  const auto germany_text = germany_body.at("text").get<std::string>();
+
+  EXPECT_TRUE(contains_paris(france_text)) << france_text;
+  EXPECT_TRUE(contains_berlin(germany_text)) << germany_text;
+
+  server.stop();
+}
+
+TEST(HttpE2ETest, ConcurrentChatCompletionHandlersReturnIndependentAnswers) {
+  auto maybe_args = make_real_server_args(/*port=*/18086);
+  if (!maybe_args.has_value()) {
+    GTEST_SKIP() << "CUDA or Qwen3 model path is unavailable for HTTP E2E test";
+  }
+
+  maybe_args->max_running_req = 4;
+  ApiServer server(*maybe_args);
+
+  auto france_future = std::async(std::launch::async, [&]() {
+    OpenAICompletionRequest request;
+    request.model = maybe_args->model_path;
+    request.messages = std::vector<ChatMessage>{
+        ChatMessage{"system", "You are a concise assistant."},
+        ChatMessage{"user", "What is the capital of France? Answer in one short sentence."},
+    };
+    request.max_tokens = 24;
+    request.temperature = 0.0F;
+    request.top_k = -1;
+    request.top_p = 1.0F;
+    request.stream = false;
+    return server.handle_chat_completions(request);
+  });
+
+  auto germany_future = std::async(std::launch::async, [&]() {
+    OpenAICompletionRequest request;
+    request.model = maybe_args->model_path;
+    request.messages = std::vector<ChatMessage>{
+        ChatMessage{"system", "You are a concise assistant."},
+        ChatMessage{"user", "What is the capital of Germany? Answer in one short sentence."},
+    };
+    request.max_tokens = 24;
+    request.temperature = 0.0F;
+    request.top_k = -1;
+    request.top_p = 1.0F;
+    request.stream = false;
+    return server.handle_chat_completions(request);
+  });
+
+  auto france_response = france_future.get();
+  auto germany_response = germany_future.get();
+
+  const auto france_body = france_response;
+  const auto germany_body = germany_response;
+  const auto france_text =
+      france_body["choices"][0]["message"]["content"].get<std::string>();
+  const auto germany_text =
+      germany_body["choices"][0]["message"]["content"].get<std::string>();
+
+  EXPECT_TRUE(contains_paris(france_text)) << france_text;
+  EXPECT_TRUE(contains_berlin(germany_text)) << germany_text;
+}
+
+TEST(HttpE2ETest, ConcurrentGenerateSweepUpToOom) {
+  const std::vector<int> concurrency_levels = {8, 16, 64, 128};
+  int max_completed_concurrency = 0;
+
+  for (int concurrency : concurrency_levels) {
+    SCOPED_TRACE("http_generate_concurrency=" + std::to_string(concurrency));
+    auto maybe_args = make_dummy_server_args(/*port=*/18100 + concurrency, concurrency);
+    if (!maybe_args.has_value()) {
+      GTEST_SKIP() << "CUDA or Qwen3 tokenizer/model path is unavailable for HTTP E2E test";
+    }
+
+    try {
+      ScopedApiServer server(*maybe_args);
+      server.start();
+
+      std::vector<std::future<cinatra::resp_data>> futures;
+      futures.reserve(concurrency);
+      for (int i = 0; i < concurrency; ++i) {
+        futures.push_back(std::async(std::launch::async, [port = maybe_args->server_port, i]() {
+          nlohmann::json payload = {
+              {"prompt", "Hello #" + std::to_string(i)},
+              {"max_tokens", 2},
+              {"ignore_eos", true},
+              {"stream", false},
+          };
+
+          cinatra::coro_http_client client;
+          return client.post("http://127.0.0.1:" + std::to_string(port) + "/generate",
+                             payload.dump(), cinatra::req_content_type::json);
+        }));
+      }
+
+      for (auto& future : futures) {
+        auto response = future.get();
+        ASSERT_FALSE(response.net_err) << response.net_err.message();
+        ASSERT_EQ(response.status, 200);
+        const auto body = parse_json_or_fail(std::string(response.resp_body));
+        EXPECT_TRUE(body.at("finished").get<bool>());
+        EXPECT_GE(body.at("token_ids").size(), 1);
+        EXPECT_LE(body.at("token_ids").size(), 2);
+      }
+
+      server.stop();
+      max_completed_concurrency = concurrency;
+      std::cout << "[http sweep] completed concurrency=" << concurrency << std::endl;
+    } catch (const c10::Error& error) {
+      if (is_cuda_oom(error)) {
+        std::cout << "[http sweep] hit OOM at concurrency=" << concurrency << std::endl;
+        break;
+      }
+      throw;
+    } catch (const std::runtime_error& error) {
+      if (is_cuda_oom(error)) {
+        std::cout << "[http sweep] hit OOM at concurrency=" << concurrency << std::endl;
+        break;
+      }
+      throw;
+    }
+  }
+
+  EXPECT_GE(max_completed_concurrency, 8);
 }
 
 }  // namespace
