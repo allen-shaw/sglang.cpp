@@ -1,0 +1,53 @@
+#include "sglang/layers/attention_layer.h"
+#include "sglang/core/context.h"
+
+namespace sglang {
+
+AttentionLayer::AttentionLayer(int layer_id, int num_qo_heads, int num_kv_heads, int head_dim,
+                               RotaryEmbedding* rotary, RMSNorm* q_norm, RMSNorm* k_norm)
+    : layer_id_(layer_id), head_dim_(head_dim), rotary_(rotary), q_norm_(q_norm), k_norm_(k_norm) {
+    
+    int tp_size = 1; // FIXME: distributed
+    num_qo_heads_ = num_qo_heads / tp_size;
+    num_kv_heads_ = num_kv_heads / tp_size; // FIXME: allow replicate
+    
+    qo_attn_dim_ = num_qo_heads_ * head_dim;
+    kv_attn_dim_ = num_kv_heads_ * head_dim;
+}
+
+torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Tensor& positions) {
+    // qkv is expected to be [total_tokens, qo_attn_dim + 2 * kv_attn_dim]
+    auto splits = qkv.split({qo_attn_dim_, kv_attn_dim_, kv_attn_dim_}, -1);
+    auto q = splits[0].contiguous();
+    auto k = splits[1].contiguous();
+    auto v = splits[2].contiguous();
+
+    auto q_view = q.view({-1, num_qo_heads_, head_dim_});
+    auto k_view = k.view({-1, num_kv_heads_, head_dim_});
+
+    // Apply QK norm if present (Qwen3 uses this)
+    if (q_norm_) {
+        q_norm_->forward_inplace(q_view);
+    }
+    if (k_norm_) {
+        k_norm_->forward_inplace(k_view);
+    }
+
+    // Apply RoPE using precomputed cos/sin cache
+    auto positions_mut = positions;  // need non-const for forward_inplace
+    rotary_->forward_inplace(positions_mut, q_view, k_view);
+
+    // Execute attention via global context's backend
+    // Python: o = ctx.attn_backend.forward(q, k, v, self.layer_id, ctx.batch)
+    auto ctx = get_global_ctx();
+    auto batch = ctx->get_batch();
+    TORCH_CHECK(batch, "AttentionLayer::forward requires an active batch in Context");
+    TORCH_CHECK(ctx->attn_backend, "AttentionLayer::forward requires attn_backend in Context");
+
+    auto o = ctx->attn_backend->forward(q_view, k, v, layer_id_, *batch);
+
+    // Output shape: [total_tokens, qo_attn_dim]
+    return o.view({-1, qo_attn_dim_});
+}
+
+}  // namespace sglang
