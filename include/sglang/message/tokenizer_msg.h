@@ -2,16 +2,24 @@
 
 #include <cstdint>
 #include <string>
+#include <variant>
+#include <vector>
 
 #include "sglang/core/sampling_params.h"
 
 namespace sglang {
 
+struct ChatMessage {
+  std::string role;
+  std::string content;
+};
+
+using TokenizeInput = std::variant<std::string, std::vector<ChatMessage>>;
+
 /// Message to request tokenization of text.
 struct TokenizeMsg {
   uint64_t uid = 0;
-  std::string text;
-  // TODO: Add support for chat templates (e.g., list of dicts) if needed in the future
+  TokenizeInput text;
   SamplingParams sampling_params;
 };
 

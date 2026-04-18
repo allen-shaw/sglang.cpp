@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(sglang_cpp CXX CUDA)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -16,11 +16,24 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
 # Find dependencies
 find_package(Threads REQUIRED)
+include(FetchContent)
+
+# ============================================================
+# Cinatra (header-only HTTP server)
+# ============================================================
+FetchContent_Declare(
+    cinatra
+    GIT_REPOSITORY https://github.com/qicosmos/cinatra.git
+    GIT_TAG        0.9.4
+)
+FetchContent_GetProperties(cinatra)
+if(NOT cinatra_POPULATED)
+  FetchContent_Populate(cinatra)
+endif()
 
 # ============================================================
 # FlashInfer (fetched via FetchContent)
 # ============================================================
-include(FetchContent)
 FetchContent_Declare(
     flashinfer
     GIT_REPOSITORY https://github.com/flashinfer-ai/flashinfer.git
@@ -89,6 +102,10 @@ set(SGLANG_CORE_SRCS
     src/scheduler/prefill.cc
     src/scheduler/decode.cc
     src/scheduler/scheduler.cc
+    src/llm/llm.cc
+    src/server/args.cc
+    src/server/frontend.cc
+    src/server/http_server.cc
 )
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
@@ -105,6 +122,7 @@ target_include_directories(sglang_core PUBLIC
     ${TORCH_INCLUDE_DIRS}
     ${flashinfer_SOURCE_DIR}/include
     ${tokenizers_cpp_SOURCE_DIR}/include
+    ${cinatra_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/third_party/safetensors_cpp
 )
 
@@ -249,3 +267,15 @@ add_test(NAME TestSchedulerManagers COMMAND test_scheduler_managers)
 add_executable(test_scheduler_e2e tests/scheduler/test_scheduler_e2e.cpp)
 target_link_libraries(test_scheduler_e2e PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestSchedulerE2E COMMAND test_scheduler_e2e)
+
+add_executable(test_llm tests/llm/test_llm.cpp)
+target_link_libraries(test_llm PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestLLM COMMAND test_llm)
+
+add_executable(test_server_args tests/server/test_args.cpp)
+target_link_libraries(test_server_args PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestServerArgs COMMAND test_server_args)
+
+add_executable(test_http_e2e tests/server/test_http_e2e.cpp)
+target_link_libraries(test_http_e2e PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestHttpE2E COMMAND test_http_e2e)
