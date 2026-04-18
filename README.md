@@ -1,5 +1,9 @@
 # sglang.cpp
 
+<p align="center">
+  <img src="assets/logo.png" alt="sglang.cpp logo" width="720">
+</p>
+
 [中文说明 / Chinese README](docs/zh/README_cn.md)
 
 `sglang.cpp` is a C++ reimplementation of [mini-sglang](https://github.com/sgl-project/mini-sglang). It keeps the high-level architecture aligned where practical, while using LibTorch, CUDA, and C++ multi-threading to build a lower-latency inference runtime and HTTP service.

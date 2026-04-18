@@ -1,5 +1,9 @@
 # sglang.cpp
 
+<p align="center">
+  <img src="../../assets/logo.png" alt="sglang.cpp logo" width="720">
+</p>
+
 `sglang.cpp` 是对 [mini-sglang](https://github.com/sgl-project/mini-sglang) 的 C++ 重写版本，目标是在保持整体架构思路对齐的前提下，使用 LibTorch、CUDA 和 C++ 多线程实现更低延迟、更易部署的推理服务。
 
 当前项目已经完成到“控制面 + 接口层”阶段，能够跑通：
