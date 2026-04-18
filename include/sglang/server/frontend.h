@@ -122,6 +122,7 @@ class FrontendManager {
   ~FrontendManager() = default;
 
   uint64_t new_request();
+  uint64_t submit_tokenized_request(torch::Tensor input_ids, SamplingParams sampling_params);
   uint64_t submit_text_request(TokenizeInput input, SamplingParams sampling_params);
   void abort(uint64_t uid);
   GenerateTextResult wait_result(uint64_t uid);

@@ -187,6 +187,29 @@ uint64_t FrontendManager::new_request() {
   return uid;
 }
 
+uint64_t FrontendManager::submit_tokenized_request(torch::Tensor input_ids,
+                                                   SamplingParams sampling_params) {
+  const uint64_t uid = new_request();
+  auto context = find_context(uid);
+  if (!context) {
+    return uid;
+  }
+
+  try {
+    GenerateRequest request;
+    request.uid = uid;
+    request.input_ids = input_ids.to(torch::kCPU).to(torch::kInt32).contiguous();
+    request.sampling_params = sampling_params;
+    scheduler_runner_.submit(std::move(request));
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(context->mutex);
+    context->finished = true;
+    context->cv.notify_all();
+  }
+
+  return uid;
+}
+
 uint64_t FrontendManager::submit_text_request(TokenizeInput input,
                                               SamplingParams sampling_params) {
   const uint64_t uid = new_request();

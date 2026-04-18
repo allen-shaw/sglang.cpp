@@ -67,6 +67,7 @@ sglang.cpp/
 
 - [docs/DESIGN_zh.md](../DESIGN_zh.md)
 - [docs/DEVELOPMENT_PLAN.md](../DEVELOPMENT_PLAN.md)
+- [benchmarks/README.md](../../benchmarks/README.md)
 
 ## 依赖
 
@@ -91,10 +92,20 @@ cmake --build build -j4
 构建完成后，主要可执行文件包括：
 
 - `build/sglang_server`
+- `build/bench_offline`
 - 各类测试程序，例如：
   - `build/test_scheduler_e2e`
   - `build/test_llm`
   - `build/test_http_e2e`
+
+## Benchmark
+
+项目现在已经补充了两类 benchmark：
+
+- 基于 Google Benchmark 的离线 C++ benchmark
+- 面向 `/generate` 接口的 Python 在线 benchmark 脚本
+
+具体用法和与 `mini-sglang` 的对比方式见 [../../benchmarks/README.md](../../benchmarks/README.md)。
 
 ## 模型准备
 

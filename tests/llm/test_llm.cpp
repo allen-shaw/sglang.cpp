@@ -91,6 +91,41 @@ TEST(LLMTest, DummyWeightSinglePromptReturnsTokens) {
   EXPECT_TRUE(result.finished);
 }
 
+TEST(LLMTest, DummyWeightTokenIdsPromptReturnsTokens) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for LLM tests";
+  }
+
+  ServerArgs args;
+  args.model_path = find_qwen3_model_path();
+  if (args.model_path.empty()) {
+    GTEST_SKIP() << "Qwen3 tokenizer/model path not found";
+  }
+  args.dtype = torch::kBFloat16;
+  args.num_tokenizer_threads = 1;
+  args.max_running_req = 2;
+  args.memory_ratio = 0.01F;
+  args.page_size = 1;
+  args.num_pages_override = 32;
+  args.max_seq_len_override = 32;
+  args.max_extend_tokens = 8;
+  args.use_dummy_weight = true;
+
+  LLM llm(args);
+  SamplingParams params;
+  params.temperature = 0.0F;
+  params.top_p = 1.0F;
+  params.top_k = -1;
+  params.max_new_tokens = 4;
+  params.ignore_eos = true;
+
+  auto result =
+      llm.generate(torch::tensor({1, 2, 3, 4}, torch::TensorOptions().dtype(torch::kInt32)),
+                   params);
+  EXPECT_FALSE(result.token_ids.empty());
+  EXPECT_TRUE(result.finished);
+}
+
 TEST(LLMTest, RealModelFrancePromptMentionsParis) {
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA is required for LLM tests";

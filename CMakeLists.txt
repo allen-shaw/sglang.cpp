@@ -67,6 +67,18 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 
 # ============================================================
+# Google Benchmark
+# ============================================================
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    google_benchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.8.4
+)
+FetchContent_MakeAvailable(google_benchmark)
+
+# ============================================================
 # Core static library (shared by server and tests)
 # ============================================================
 set(SGLANG_CORE_SRCS
@@ -279,3 +291,9 @@ add_test(NAME TestServerArgs COMMAND test_server_args)
 add_executable(test_http_e2e tests/server/test_http_e2e.cpp)
 target_link_libraries(test_http_e2e PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestHttpE2E COMMAND test_http_e2e)
+
+# ============================================================
+# Benchmark targets
+# ============================================================
+add_executable(bench_offline benchmarks/offline/bench_offline.cpp)
+target_link_libraries(bench_offline PRIVATE sglang_core benchmark::benchmark)
