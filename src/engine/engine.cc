@@ -343,7 +343,10 @@ ForwardOutput Engine::forward_batch(Batch& batch, const BatchSamplingArgs& args)
     }
 
     auto sampled = sampler_.sample(sampling_logits, args).to(torch::kInt32);
-    auto next_tokens_cpu = sampled.cpu();
+    auto next_tokens_cpu = torch::empty(
+        sampled.sizes(),
+        torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true));
+    next_tokens_cpu.copy_(sampled, /*non_blocking=*/true);
     auto event = std::make_shared<at::cuda::CUDAEvent>();
     event->record(stream_);
     return ForwardOutput{sampled, next_tokens_cpu, event};
@@ -416,10 +419,7 @@ std::vector<int> GraphRunner::determine_batch_sizes(bool enable_cuda_graph,
 }
 
 bool GraphRunner::can_use_cuda_graph(const Batch& batch) const {
-    // The current C++ FlashInfer graph path is only validated for single-request decode.
-    // Multi-request decode graphs need a graph-specific planning path to safely handle
-    // dynamic paged-kv metadata across replays.
-    return enable_cuda_graph_ && batch.is_decode() && batch.size() == 1 &&
+    return enable_cuda_graph_ && batch.is_decode() &&
            !graph_batch_sizes_.empty() &&
            batch.size() <= max_batch_size_;
 }

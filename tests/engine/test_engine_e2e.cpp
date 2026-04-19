@@ -254,6 +254,99 @@ TEST(EngineE2ETest, SingleRequestRunsToCompletionWithCudaGraphDecode) {
   EXPECT_FALSE(req->can_decode());
 }
 
+TEST(EngineE2ETest, TwoRequestsRunToCompletionWithCudaGraphDecode) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Engine E2E test";
+  }
+
+  Engine engine(make_test_engine_config_with_graph());
+  TableManager table_manager(/*max_running_reqs=*/4, engine.page_table());
+  CacheManager cache_manager(engine.num_pages(), /*page_size=*/1, engine.page_table(), "radix");
+
+  auto req_a = make_req(/*req_id=*/221, table_manager.allocate(), {3, 5, 7}, /*max_new_tokens=*/2);
+  auto req_b =
+      make_req(/*req_id=*/222, table_manager.allocate(), {11, 13, 17, 19}, /*max_new_tokens=*/3);
+  copy_prompt_to_pool(table_manager, *req_a);
+  copy_prompt_to_pool(table_manager, *req_b);
+
+  bool first_step = true;
+  while (req_a->can_decode() || req_b->can_decode()) {
+    Batch batch;
+    batch.phase = first_step ? BatchPhase::Prefill : BatchPhase::Decode;
+    if (req_a->can_decode()) {
+      batch.reqs.push_back(req_a);
+    }
+    if (req_b->can_decode()) {
+      batch.reqs.push_back(req_b);
+    }
+
+    auto prepared = prepare_batch(engine, table_manager, cache_manager, batch);
+    auto sampling_args = engine.prepare_sampling_args(batch);
+    auto output = engine.forward_batch(batch, sampling_args);
+    output.synchronize();
+    write_next_tokens_to_pool(output, prepared, table_manager);
+    append_sampled_tokens(output, batch.reqs);
+    first_step = false;
+  }
+
+  EXPECT_EQ(req_a->input_ids.size(0), 5);
+  EXPECT_EQ(req_b->input_ids.size(0), 7);
+  EXPECT_FALSE(req_a->can_decode());
+  EXPECT_FALSE(req_b->can_decode());
+}
+
+TEST(EngineE2ETest, ConcurrencySweepWithCudaGraphDecode) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Engine E2E test";
+  }
+
+  for (int concurrency : {8, 16}) {
+    auto config = make_scaling_engine_config(concurrency);
+    config.enable_cuda_graph = true;
+    config.cuda_graph_batch_sizes = {1, 2, 4, 8, 16};
+    config.cuda_graph_max_batch_size = 16;
+
+    Engine engine(config);
+    TableManager table_manager(/*max_running_reqs=*/concurrency, engine.page_table());
+    CacheManager cache_manager(engine.num_pages(), /*page_size=*/1, engine.page_table(), "radix");
+
+    std::vector<std::shared_ptr<Req>> reqs;
+    reqs.reserve(concurrency);
+    for (int i = 0; i < concurrency; ++i) {
+      auto req = make_req(
+          /*req_id=*/1000 + i, table_manager.allocate(), {1, 2, 3, static_cast<int32_t>(i + 4)},
+          /*max_new_tokens=*/2);
+      copy_prompt_to_pool(table_manager, *req);
+      reqs.push_back(req);
+    }
+
+    bool first_step = true;
+    while (std::any_of(reqs.begin(), reqs.end(),
+                       [](const auto& req) { return req->can_decode(); })) {
+      Batch batch;
+      batch.phase = first_step ? BatchPhase::Prefill : BatchPhase::Decode;
+      for (const auto& req : reqs) {
+        if (req->can_decode()) {
+          batch.reqs.push_back(req);
+        }
+      }
+
+      auto prepared = prepare_batch(engine, table_manager, cache_manager, batch);
+      auto sampling_args = engine.prepare_sampling_args(batch);
+      auto output = engine.forward_batch(batch, sampling_args);
+      output.synchronize();
+      write_next_tokens_to_pool(output, prepared, table_manager);
+      append_sampled_tokens(output, batch.reqs);
+      first_step = false;
+    }
+
+    for (const auto& req : reqs) {
+      EXPECT_FALSE(req->can_decode());
+      EXPECT_EQ(req->input_ids.size(0), 6);
+    }
+  }
+}
+
 TEST(EngineE2ETest, TwoRequestsSameBatchFinishIndependently) {
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA is required for Engine E2E test";

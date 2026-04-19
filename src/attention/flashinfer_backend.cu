@@ -15,6 +15,30 @@
 
 using namespace flashinfer;
 
+namespace {
+
+struct DecodePlanState {
+    DecodePlanInfo plan_info;
+    int32_t kv_chunk_size = 0;
+};
+
+size_t decode_plan_copy_bytes(const DecodePlanInfo& plan_info) {
+    size_t bytes = static_cast<size_t>(plan_info.kv_chunk_size_ptr_offset) + sizeof(int32_t);
+    bytes = std::max(bytes, static_cast<size_t>(plan_info.request_indices_offset) +
+                                static_cast<size_t>(plan_info.padded_batch_size) * sizeof(int32_t));
+    bytes = std::max(bytes, static_cast<size_t>(plan_info.kv_tile_indices_offset) +
+                                static_cast<size_t>(plan_info.padded_batch_size) * sizeof(int32_t));
+    bytes = std::max(bytes, static_cast<size_t>(plan_info.o_indptr_offset) +
+                                (static_cast<size_t>(plan_info.padded_batch_size) + 1) * sizeof(int32_t));
+    if (plan_info.split_kv) {
+        bytes = std::max(bytes, static_cast<size_t>(plan_info.block_valid_mask_offset) +
+                                    static_cast<size_t>(plan_info.padded_batch_size) * sizeof(bool));
+    }
+    return bytes;
+}
+
+} // namespace
+
 namespace sglang {
 
 torch::Tensor FlashInferAttnMetadata::get_last_indices(int bs) const {
@@ -144,6 +168,57 @@ void FlashInferBackend::prepare_for_replay(Batch& batch) {
             metadata->indices, /*non_blocking=*/true);
     }
 
+    auto* plan_state = static_cast<DecodePlanState*>(capture_metadata->decode_plan_state.get());
+    TORCH_CHECK(plan_state, "FlashInfer replay requires initialized decode plan state");
+    auto& plan_info = plan_state->plan_info;
+    TORCH_CHECK(plan_state->kv_chunk_size > 0, "Invalid FlashInfer decode kv chunk size");
+
+    auto* kv_indptr_h = capture_metadata->kv_indptr_host_tensor.data_ptr<int32_t>();
+    auto [request_indices_vec, kv_tile_indices_vec, o_indptr_vec] =
+        DecodeSplitKVIndptr<int32_t>(
+            kv_indptr_h, static_cast<uint32_t>(batch_size),
+            static_cast<uint32_t>(plan_state->kv_chunk_size));
+
+    TORCH_CHECK(request_indices_vec.size() <= static_cast<size_t>(plan_info.padded_batch_size),
+                "FlashInfer replay request tile count exceeds captured plan capacity");
+    TORCH_CHECK(kv_tile_indices_vec.size() <= static_cast<size_t>(plan_info.padded_batch_size),
+                "FlashInfer replay KV tile count exceeds captured plan capacity");
+    TORCH_CHECK(o_indptr_vec.size() == static_cast<size_t>(batch_size + 1),
+                "Invalid FlashInfer replay o_indptr size");
+
+    auto* pinned_workspace = pinned_int_workspace_.data_ptr<uint8_t>();
+    auto* request_indices_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.request_indices_offset);
+    auto* kv_tile_indices_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.kv_tile_indices_offset);
+    auto* o_indptr_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.o_indptr_offset);
+    auto* kv_chunk_size_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.kv_chunk_size_ptr_offset);
+
+    std::fill(request_indices_h, request_indices_h + plan_info.padded_batch_size, 0);
+    std::fill(kv_tile_indices_h, kv_tile_indices_h + plan_info.padded_batch_size, 0);
+    std::fill(o_indptr_h, o_indptr_h + plan_info.padded_batch_size + 1, o_indptr_vec.back());
+    std::copy(request_indices_vec.begin(), request_indices_vec.end(), request_indices_h);
+    std::copy(kv_tile_indices_vec.begin(), kv_tile_indices_vec.end(), kv_tile_indices_h);
+    std::copy(o_indptr_vec.begin(), o_indptr_vec.end(), o_indptr_h);
+    kv_chunk_size_h[0] = plan_state->kv_chunk_size;
+
+    if (plan_info.split_kv) {
+        auto* block_valid_mask_h =
+            reinterpret_cast<bool*>(pinned_workspace + plan_info.block_valid_mask_offset);
+        std::fill(block_valid_mask_h, block_valid_mask_h + plan_info.padded_batch_size, false);
+        std::fill(block_valid_mask_h, block_valid_mask_h + request_indices_vec.size(), true);
+    }
+
+    auto stream = at::cuda::getCurrentCUDAStream().stream();
+    auto copy_status = cudaMemcpyAsync(
+        int_workspace_.data_ptr(), pinned_int_workspace_.data_ptr(),
+        decode_plan_copy_bytes(plan_info), cudaMemcpyHostToDevice, stream);
+    TORCH_CHECK(copy_status == cudaSuccess,
+                "FlashInfer replay decode plan metadata copy failed: ",
+                cudaGetErrorString(copy_status));
+
     batch.attn_metadata = capture_metadata;
 }
 
@@ -173,13 +248,18 @@ void FlashInferBackend::initialize_decode_metadata_once(FlashInferAttnMetadata& 
     int32_t* kv_indptr_ptr = metadata.kv_indptr_host_tensor.defined()
                                  ? metadata.kv_indptr_host_tensor.data_ptr<int32_t>()
                                  : metadata.kv_indptr_host.data();
-    auto plan_info = std::make_shared<DecodePlanInfo>();
+    auto plan_state = std::make_shared<DecodePlanState>();
     cudaError_t status = DecodePlan<HEAD_DIM, POS_ENCODING_MODE, DecodeAttentionVariant>(
         float_workspace_.data_ptr(), float_workspace_.nbytes(), int_workspace_.data_ptr(),
-        pinned_int_workspace_.data_ptr(), int_workspace_.nbytes(), *plan_info,
-        kv_indptr_ptr, batch_size, num_qo_heads_, 1, false, stream, work_estimation_func);
+        pinned_int_workspace_.data_ptr(), int_workspace_.nbytes(), plan_state->plan_info,
+        kv_indptr_ptr, batch_size, num_qo_heads_, 1, false, stream,
+        work_estimation_func);
     TORCH_CHECK(status == cudaSuccess, "FlashInfer DecodePlan failed");
-    metadata.decode_plan_state = std::move(plan_info);
+    auto* pinned_workspace = pinned_int_workspace_.data_ptr<uint8_t>();
+    auto* kv_chunk_size_h = reinterpret_cast<int32_t*>(
+        pinned_workspace + plan_state->plan_info.kv_chunk_size_ptr_offset);
+    plan_state->kv_chunk_size = kv_chunk_size_h[0];
+    metadata.decode_plan_state = std::move(plan_state);
     metadata.initialized = true;
 }
 
@@ -281,9 +361,9 @@ torch::Tensor FlashInferBackend::forward(const torch::Tensor& q,
         using DecodeParamsT = BatchDecodeParams<DTypeQ, DTypeKV, DTypeO, IdType>;
         using DecodeAttentionVariant = ComposedAttention<DecodeParamsT, get_variant_code(false, true, false, false)>;
         initialize_decode_metadata_once(*meta, batch_size);
-        auto* plan_info_ptr = static_cast<DecodePlanInfo*>(meta->decode_plan_state.get());
-        TORCH_CHECK(plan_info_ptr, "FlashInfer decode plan state is not initialized");
-        auto& plan_info = *plan_info_ptr;
+        auto* plan_state = static_cast<DecodePlanState*>(meta->decode_plan_state.get());
+        TORCH_CHECK(plan_state, "FlashInfer decode plan state is not initialized");
+        auto& plan_info = plan_state->plan_info;
 
         const int64_t page_stride = k_cache_view.stride(0);
         const int64_t head_stride = k_cache_view.stride(1);
@@ -373,8 +453,10 @@ torch::Tensor FlashInferBackend::forward(const torch::Tensor& q,
         DTypeO* tmp_v = nullptr;
         float* tmp_s = nullptr;
         if (plan_info.split_kv) {
-            tmp_v = GetPtrFromBaseOffset<DTypeO>(float_workspace_.data_ptr(), plan_info.v_offset);
-            tmp_s = GetPtrFromBaseOffset<float>(float_workspace_.data_ptr(), plan_info.s_offset);
+          tmp_v = GetPtrFromBaseOffset<DTypeO>(float_workspace_.data_ptr(), plan_info.v_offset);
+          tmp_s = GetPtrFromBaseOffset<float>(float_workspace_.data_ptr(), plan_info.s_offset);
+          params.block_valid_mask = GetPtrFromBaseOffset<bool>(int_workspace_.data_ptr(),
+                                                               plan_info.block_valid_mask_offset);
         }
 
 #define DISPATCH_CTA_TILE(cta_tile, CTA_TILE, ...) \

@@ -23,6 +23,8 @@ struct ServerArgs {
   int page_size = SchedulerConfig{}.page_size;
   std::optional<int> num_pages_override;
   std::optional<int> max_seq_len_override;
+  std::optional<int> cuda_graph_max_batch_size;
+  std::vector<int> cuda_graph_batch_sizes;
   bool use_dummy_weight = false;
   bool enable_cuda_graph = false;
   bool shell_mode = false;

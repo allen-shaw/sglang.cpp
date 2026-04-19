@@ -102,6 +102,14 @@ python benchmarks/compare/compare_with_minisgl.py \
   --scales 0.4,0.8,1.0
 ```
 
+To compare `sglang.cpp` with decode CUDA graph enabled, add:
+
+```bash
+  --sglang-enable-graph \
+  --sglang-graph-max-bs 16 \
+  --sglang-graph-batch-sizes 1,2,4,8,16
+```
+
 Run both:
 
 ```bash

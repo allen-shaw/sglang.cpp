@@ -234,6 +234,92 @@ TEST(SchedulerE2ETest, SingleRequestRunsToCompletionWithCudaGraphDecode) {
   expect_request_finished(replies, request.uid, /*expected_tokens=*/3);
 }
 
+TEST(SchedulerE2ETest, TwoRequestsRunToCompletionWithCudaGraphDecode) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  Scheduler scheduler(make_test_scheduler_config_with_graph());
+  auto request_a = make_request(/*uid=*/181, {11, 12, 13}, /*max_new_tokens=*/2);
+  auto request_b = make_request(/*uid=*/182, {21, 22, 23, 24}, /*max_new_tokens=*/3);
+
+  scheduler.submit(request_a);
+  scheduler.submit(request_b);
+  auto replies = scheduler.run_until_idle();
+
+  ASSERT_EQ(replies.size(), 5);
+  EXPECT_FALSE(scheduler.has_work());
+  expect_request_finished(replies, request_a.uid, /*expected_tokens=*/2);
+  expect_request_finished(replies, request_b.uid, /*expected_tokens=*/3);
+}
+
+TEST(SchedulerE2ETest, ConcurrencySweepWithCudaGraphDecode) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  for (int concurrency : {8, 16}) {
+    auto config = make_scaling_scheduler_config(concurrency);
+    config.enable_cuda_graph = true;
+    config.cuda_graph_batch_sizes = {1, 2, 4, 8, 16};
+    config.cuda_graph_max_batch_size = 16;
+
+    Scheduler scheduler(config);
+    for (int i = 0; i < concurrency; ++i) {
+      scheduler.submit(make_request(
+          /*uid=*/5000 + i, {1, 2, 3, static_cast<int32_t>(i + 4)}, /*max_new_tokens=*/2));
+    }
+
+    auto replies = scheduler.run_until_idle();
+    ASSERT_EQ(replies.size(), static_cast<size_t>(concurrency * 2));
+    EXPECT_FALSE(scheduler.has_work());
+    for (int i = 0; i < concurrency; ++i) {
+      expect_request_finished(replies, /*uid=*/5000 + i, /*expected_tokens=*/2);
+    }
+  }
+}
+
+TEST(SchedulerE2ETest, StaggeredLongRequestsWithCudaGraphDecode) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  auto config = make_test_scheduler_config_with_graph();
+  config.max_running_req = 16;
+  config.max_extend_tokens = 4096;
+  config.max_seq_len_override = 4096;
+  config.num_pages_override = 4096;
+  config.memory_ratio = 0.05F;
+  config.cuda_graph_batch_sizes = {1, 2, 4, 8, 16};
+  config.cuda_graph_max_batch_size = 16;
+
+  Scheduler scheduler(config);
+  std::vector<DetokenizeMsg> replies;
+  for (int i = 0; i < 8; ++i) {
+    std::vector<int32_t> prompt;
+    const int prompt_len = 64 + i * 32;
+    prompt.reserve(prompt_len);
+    for (int j = 0; j < prompt_len; ++j) {
+      prompt.push_back(static_cast<int32_t>((j + i) % 60));
+    }
+    scheduler.submit(make_request(/*uid=*/7000 + i, std::move(prompt), /*max_new_tokens=*/16));
+    if (i % 2 == 1) {
+      auto partial = scheduler.step();
+      EXPECT_FALSE(partial.empty());
+      replies.insert(replies.end(), partial.begin(), partial.end());
+    }
+  }
+
+  auto tail_replies = scheduler.run_until_idle();
+  replies.insert(replies.end(), tail_replies.begin(), tail_replies.end());
+  EXPECT_FALSE(scheduler.has_work());
+  auto grouped = group_by_uid(replies);
+  ASSERT_EQ(grouped.size(), 8u);
+  for (int i = 0; i < 8; ++i) {
+    expect_request_finished(replies, /*uid=*/7000 + i, /*expected_tokens=*/16);
+  }
+}
+
 TEST(SchedulerE2ETest, TwoRequestsSameTickRunToCompletion) {
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA is required for Scheduler E2E test";

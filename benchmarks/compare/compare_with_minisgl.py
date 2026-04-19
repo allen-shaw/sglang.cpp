@@ -78,6 +78,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--synthetic-min-output", type=int, default=16)
     parser.add_argument("--synthetic-max-output", type=int, default=256)
     parser.add_argument("--online-streaming", action="store_true")
+    parser.add_argument("--sglang-enable-graph", action="store_true")
+    parser.add_argument("--sglang-graph-max-bs", type=int, default=0)
+    parser.add_argument("--sglang-graph-batch-sizes", default="")
     parser.add_argument("--server-timeout", type=float, default=180.0)
     return parser
 
@@ -378,6 +381,11 @@ def start_sglang_server(args: argparse.Namespace, output_dir: Path) -> ServerHan
         str(args.sglang_port),
     ]
     cmd = maybe_add_common_args(cmd, args)
+    if args.sglang_enable_graph:
+        graph_max_bs = args.sglang_graph_max_bs or args.max_running_requests
+        cmd.extend(["--graph", str(graph_max_bs)])
+        if args.sglang_graph_batch_sizes:
+            cmd.extend(["--cuda-graph-batch-sizes", args.sglang_graph_batch_sizes])
     log_file = log_path.open("w")
     process = subprocess.Popen(
         cmd,
