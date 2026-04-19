@@ -89,6 +89,7 @@ set(SGLANG_CORE_SRCS
     src/utils/tensor_utils.cc
     src/message/message.cc
     src/kernels/radix.cc
+    src/kernels/token_pool.cu
     src/kvcache/radix_tree.cc
     src/kvcache/cache_manager.cc
     src/kvcache/mha_kvcache.cc

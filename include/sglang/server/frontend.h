@@ -15,6 +15,9 @@
 #include <utility>
 #include <vector>
 
+#include <async_simple/Future.h>
+#include <async_simple/Promise.h>
+
 #include "sglang/message/message.h"
 #include "sglang/message/tokenizer_msg.h"
 #include "sglang/scheduler/scheduler.h"
@@ -37,6 +40,8 @@ struct RequestContext {
   std::vector<int32_t> token_ids;
   std::string text;
   std::deque<GenerateResponse> pending_chunks;
+  std::optional<async_simple::Promise<std::optional<GenerateResponse>>> pending_chunk_promise;
+  std::optional<async_simple::Promise<GenerateTextResult>> result_promise;
   bool finished = false;
   bool aborted = false;
   std::mutex mutex;
@@ -136,7 +141,9 @@ class FrontendManager {
   uint64_t submit_text_request(TokenizeInput input, SamplingParams sampling_params);
   void abort(uint64_t uid);
   GenerateTextResult wait_result(uint64_t uid);
+  async_simple::Future<GenerateTextResult> wait_result_async(uint64_t uid);
   bool wait_next_chunk(uint64_t uid, GenerateResponse& response);
+  async_simple::Future<std::optional<GenerateResponse>> wait_next_chunk_async(uint64_t uid);
   void handle_detokenize(std::vector<DetokenizeMsg> msgs);
 
  private:

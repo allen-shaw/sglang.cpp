@@ -67,7 +67,7 @@ Qwen3MoEForCausalLM::Qwen3MoEForCausalLM(const ModelConfig& config) {
 
 torch::Tensor Qwen3MoEForCausalLM::forward(const torch::Tensor& input_ids, const torch::Tensor& positions) {
     auto hidden = model_->forward(input_ids, positions);
-    return lm_head_->forward(hidden);
+    return lm_head_->forward(select_lm_head_input(hidden));
 }
 
 } // namespace sglang

@@ -54,6 +54,7 @@ class Engine {
     void shutdown();
 
     const torch::Device& device() const { return device_; }
+    const c10::cuda::CUDAStream& stream() const { return stream_; }
     const torch::Tensor& page_table() const { return page_table_; }
     int max_seq_len() const { return max_seq_len_; }
     int num_pages() const { return num_pages_; }

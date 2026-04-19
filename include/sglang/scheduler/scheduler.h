@@ -19,6 +19,16 @@ struct ForwardInput {
     std::pair<torch::Tensor, torch::Tensor> write_tuple;
 };
 
+struct ForwardProfile {
+    int64_t engine_us = 0;
+    int64_t writeback_us = 0;
+};
+
+struct ProcessProfile {
+    int64_t sync_us = 0;
+    int64_t host_us = 0;
+};
+
 class Scheduler {
  public:
     explicit Scheduler(const SchedulerConfig& config);
@@ -33,9 +43,10 @@ class Scheduler {
  private:
     ForwardInput prepare_batch(const std::shared_ptr<Batch>& batch);
     std::shared_ptr<Batch> schedule_next_batch();
-    ForwardOutput forward(ForwardInput& forward_input);
+    ForwardOutput forward(ForwardInput& forward_input, ForwardProfile* profile = nullptr);
     std::vector<DetokenizeMsg> process_forward_output(const ForwardInput& input,
-                                                      const ForwardOutput& output);
+                                                      const ForwardOutput& output,
+                                                      ProcessProfile* profile = nullptr);
     void free_req_resources(const std::shared_ptr<Req>& req);
 
     SchedulerConfig config_;

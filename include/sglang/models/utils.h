@@ -9,6 +9,9 @@
 // #include "sglang/moe/moe.h"  // Forward declare for now
 
 namespace sglang {
+
+torch::Tensor select_lm_head_input(const torch::Tensor& hidden_states);
+
 class MoELayer : public torch::nn::Module {
  public:
     MoELayer(int num_experts, int num_experts_per_tok, int hidden_size, int intermediate_size, bool norm_topk_prob) {}

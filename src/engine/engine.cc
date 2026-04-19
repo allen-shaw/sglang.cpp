@@ -1,10 +1,14 @@
 #include "sglang/engine/engine.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 #include <limits>
 #include <optional>
 #include <stdexcept>
+#include <string>
 
 #include <ATen/ops/cumsum.h>
 #include <ATen/cuda/CUDAGraph.h>
@@ -26,6 +30,59 @@
 namespace sglang {
 
 namespace {
+
+bool profile_enabled() {
+    static const bool enabled = []() {
+        const char* value = std::getenv("SGLANG_CPP_PROFILE");
+        return value != nullptr && std::string(value) != "0";
+    }();
+    return enabled;
+}
+
+int64_t elapsed_us(std::chrono::steady_clock::time_point start,
+                   std::chrono::steady_clock::time_point end) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+}
+
+struct EngineProfileStats {
+    int64_t calls = 0;
+    int64_t decode_calls = 0;
+    int64_t model_us = 0;
+    int64_t select_us = 0;
+    int64_t req_state_us = 0;
+    int64_t sample_us = 0;
+    int64_t copy_event_us = 0;
+    int64_t batch_size_sum = 0;
+
+    void add(bool decode,
+             int batch_size,
+             int64_t model,
+             int64_t select,
+             int64_t req_state,
+             int64_t sample,
+             int64_t copy_event) {
+        ++calls;
+        decode_calls += decode ? 1 : 0;
+        batch_size_sum += batch_size;
+        model_us += model;
+        select_us += select;
+        req_state_us += req_state;
+        sample_us += sample;
+        copy_event_us += copy_event;
+        if (calls % 64 == 0) {
+            const double denom = static_cast<double>(calls);
+            std::cerr << "[sglang.cpp profile] engine calls=" << calls
+                      << " decode_calls=" << decode_calls
+                      << " avg_model_us=" << model_us / denom
+                      << " avg_select_us=" << select_us / denom
+                      << " avg_req_state_us=" << req_state_us / denom
+                      << " avg_sample_us=" << sample_us / denom
+                      << " avg_copy_event_us=" << copy_event_us / denom
+                      << " avg_batch_size=" << batch_size_sum / denom
+                      << std::endl;
+        }
+    }
+};
 
 std::string to_lower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -83,6 +140,9 @@ torch::Tensor sample_row(torch::Tensor logits,
 torch::Tensor select_sampling_logits(const Batch& batch, const torch::Tensor& logits) {
     if (!batch.is_prefill()) {
         return logits.slice(0, 0, batch.size());
+    }
+    if (logits.size(0) == batch.size()) {
+        return logits;
     }
 
     std::vector<int64_t> last_indices;
@@ -328,6 +388,8 @@ ForwardOutput Engine::forward_batch(Batch& batch, const BatchSamplingArgs& args)
     std::shared_ptr<Batch> batch_alias(&batch, [](Batch*) {});
     BatchGuard guard(ctx_, batch_alias);
 
+    const bool collect_profile = profile_enabled();
+    const auto model_start = std::chrono::steady_clock::now();
     torch::Tensor logits;
     if (graph_runner_->can_use_cuda_graph(batch)) {
         logits = graph_runner_->replay(batch);
@@ -335,20 +397,39 @@ ForwardOutput Engine::forward_batch(Batch& batch, const BatchSamplingArgs& args)
         auto model_input_ids = batch.input_ids.to(torch::kInt64);
         logits = model_runner_.forward(model_input_ids, batch.positions);
     }
+    const auto model_end = std::chrono::steady_clock::now();
 
+    const auto select_start = std::chrono::steady_clock::now();
     auto sampling_logits = select_sampling_logits(batch, logits);
+    const auto select_end = std::chrono::steady_clock::now();
 
+    const auto req_state_start = std::chrono::steady_clock::now();
     for (const auto& req : batch.reqs) {
         req->complete_one();
     }
+    const auto req_state_end = std::chrono::steady_clock::now();
 
+    const auto sample_start = std::chrono::steady_clock::now();
     auto sampled = sampler_.sample(sampling_logits, args).to(torch::kInt32);
+    const auto sample_end = std::chrono::steady_clock::now();
+    const auto copy_event_start = std::chrono::steady_clock::now();
     auto next_tokens_cpu = torch::empty(
         sampled.sizes(),
         torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true));
     next_tokens_cpu.copy_(sampled, /*non_blocking=*/true);
     auto event = std::make_shared<at::cuda::CUDAEvent>();
     event->record(stream_);
+    const auto copy_event_end = std::chrono::steady_clock::now();
+    if (collect_profile) {
+        static thread_local EngineProfileStats profile_stats;
+        profile_stats.add(batch.is_decode(),
+                          batch.size(),
+                          elapsed_us(model_start, model_end),
+                          elapsed_us(select_start, select_end),
+                          elapsed_us(req_state_start, req_state_end),
+                          elapsed_us(sample_start, sample_end),
+                          elapsed_us(copy_event_start, copy_event_end));
+    }
     return ForwardOutput{sampled, next_tokens_cpu, event};
 }
 

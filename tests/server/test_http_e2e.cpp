@@ -85,6 +85,22 @@ bool is_expected_shutdown_exception(const std::exception_ptr& exception) {
   }
 }
 
+struct OwnedHttpResponse {
+  std::error_code net_err;
+  int status = 0;
+  std::string body;
+};
+
+OwnedHttpResponse post_json_owned(const std::string& url, const nlohmann::json& payload) {
+  cinatra::coro_http_client client;
+  auto response = client.post(url, payload.dump(), cinatra::req_content_type::json);
+  return OwnedHttpResponse{
+      .net_err = response.net_err,
+      .status = response.status,
+      .body = std::string(response.resp_body),
+  };
+}
+
 class ScopedApiServer {
  public:
   explicit ScopedApiServer(ServerArgs args)
@@ -347,9 +363,7 @@ TEST(HttpE2ETest, ConcurrentGenerateRequestsReturnIndependentAnswers) {
         {"stream", false},
     };
 
-    cinatra::coro_http_client client;
-    return client.post("http://127.0.0.1:18085/generate", payload.dump(),
-                       cinatra::req_content_type::json);
+    return post_json_owned("http://127.0.0.1:18085/generate", payload);
   });
 
   auto germany_future = std::async(std::launch::async, []() {
@@ -361,9 +375,7 @@ TEST(HttpE2ETest, ConcurrentGenerateRequestsReturnIndependentAnswers) {
         {"stream", false},
     };
 
-    cinatra::coro_http_client client;
-    return client.post("http://127.0.0.1:18085/generate", payload.dump(),
-                       cinatra::req_content_type::json);
+    return post_json_owned("http://127.0.0.1:18085/generate", payload);
   });
 
   auto france_response = france_future.get();
@@ -374,8 +386,8 @@ TEST(HttpE2ETest, ConcurrentGenerateRequestsReturnIndependentAnswers) {
   ASSERT_EQ(france_response.status, 200);
   ASSERT_EQ(germany_response.status, 200);
 
-  const auto france_body = parse_json_or_fail(std::string(france_response.resp_body));
-  const auto germany_body = parse_json_or_fail(std::string(germany_response.resp_body));
+  const auto france_body = parse_json_or_fail(france_response.body);
+  const auto germany_body = parse_json_or_fail(germany_response.body);
   const auto france_text = france_body.at("text").get<std::string>();
   const auto germany_text = germany_body.at("text").get<std::string>();
 
@@ -453,7 +465,7 @@ TEST(HttpE2ETest, ConcurrentGenerateSweepUpToOom) {
       ScopedApiServer server(*maybe_args);
       server.start();
 
-      std::vector<std::future<cinatra::resp_data>> futures;
+      std::vector<std::future<OwnedHttpResponse>> futures;
       futures.reserve(concurrency);
       for (int i = 0; i < concurrency; ++i) {
         futures.push_back(std::async(std::launch::async, [port = maybe_args->server_port, i]() {
@@ -464,9 +476,8 @@ TEST(HttpE2ETest, ConcurrentGenerateSweepUpToOom) {
               {"stream", false},
           };
 
-          cinatra::coro_http_client client;
-          return client.post("http://127.0.0.1:" + std::to_string(port) + "/generate",
-                             payload.dump(), cinatra::req_content_type::json);
+          return post_json_owned("http://127.0.0.1:" + std::to_string(port) + "/generate",
+                                 payload);
         }));
       }
 
@@ -474,7 +485,7 @@ TEST(HttpE2ETest, ConcurrentGenerateSweepUpToOom) {
         auto response = future.get();
         ASSERT_FALSE(response.net_err) << response.net_err.message();
         ASSERT_EQ(response.status, 200);
-        const auto body = parse_json_or_fail(std::string(response.resp_body));
+        const auto body = parse_json_or_fail(response.body);
         EXPECT_TRUE(body.at("finished").get<bool>());
         EXPECT_GE(body.at("token_ids").size(), 1);
         EXPECT_LE(body.at("token_ids").size(), 2);

@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <stdexcept>
+#include <string>
 
 namespace sglang {
 
@@ -20,6 +22,30 @@ torch::Tensor normalize_input_ids(torch::Tensor input_ids) {
   }
   TORCH_CHECK(input_ids.dim() == 1, "GenerateRequest.input_ids must be a 1D tensor");
   return input_ids;
+}
+
+GenerateTextResult make_text_result(uint64_t uid, const RequestContext& context) {
+  GenerateTextResult result;
+  result.uid = uid;
+  result.text = context.text;
+  result.token_ids = context.token_ids;
+  result.finished = context.finished;
+  return result;
+}
+
+std::chrono::microseconds submit_coalesce_delay() {
+  static const auto delay = []() {
+    const char* value = std::getenv("SGLANG_CPP_SUBMIT_COALESCE_US");
+    if (value == nullptr) {
+      return std::chrono::microseconds(1000);
+    }
+    try {
+      return std::chrono::microseconds(std::max(0, std::stoi(value)));
+    } catch (...) {
+      return std::chrono::microseconds(1000);
+    }
+  }();
+  return delay;
 }
 
 }  // namespace
@@ -218,6 +244,11 @@ void SchedulerRunner::run_loop() {
       if (stop_requested_ && commands_.empty() && !scheduler_.has_work()) {
         return;
       }
+      const auto coalesce_delay = submit_coalesce_delay();
+      if (!stop_requested_ && !commands_.empty() && !scheduler_.has_work() &&
+          coalesce_delay.count() > 0) {
+        cv_.wait_for(lock, coalesce_delay, [this]() { return stop_requested_; });
+      }
       std::swap(local_commands, commands_);
     }
 
@@ -269,9 +300,7 @@ uint64_t FrontendManager::submit_tokenized_request(torch::Tensor input_ids,
     request.sampling_params = sampling_params;
     scheduler_runner_.submit(std::move(request));
   } catch (...) {
-    std::lock_guard<std::mutex> lock(context->mutex);
-    context->finished = true;
-    context->cv.notify_all();
+    complete_request(context);
   }
 
   return uid;
@@ -303,9 +332,7 @@ uint64_t FrontendManager::submit_text_request(TokenizeInput input,
       [this, uid](std::exception_ptr) {
         auto context = find_context(uid);
         if (context) {
-          std::lock_guard<std::mutex> lock(context->mutex);
-          context->finished = true;
-          context->cv.notify_all();
+          complete_request(context);
         }
       });
   return uid;
@@ -316,10 +343,30 @@ void FrontendManager::abort(uint64_t uid) {
   if (!context) {
     return;
   }
+  std::optional<async_simple::Promise<std::optional<GenerateResponse>>> chunk_promise;
+  std::optional<async_simple::Promise<GenerateTextResult>> result_promise;
+  std::optional<GenerateTextResult> result;
   {
     std::lock_guard<std::mutex> lock(context->mutex);
     context->aborted = true;
     context->finished = true;
+    if (context->pending_chunk_promise.has_value()) {
+      chunk_promise = std::move(context->pending_chunk_promise);
+      context->pending_chunk_promise.reset();
+    }
+    if (context->result_promise.has_value()) {
+      result = make_text_result(uid, *context);
+      result_promise = std::move(context->result_promise);
+      context->result_promise.reset();
+    }
+  }
+  if (chunk_promise.has_value()) {
+    chunk_promise->setValue(std::optional<GenerateResponse>{std::nullopt});
+  }
+  if (result_promise.has_value()) {
+    result_promise->setValue(std::move(*result));
+    std::lock_guard<std::mutex> map_lock(contexts_mutex_);
+    contexts_.erase(uid);
   }
   context->cv.notify_all();
   scheduler_runner_.abort(uid);
@@ -329,16 +376,32 @@ GenerateTextResult FrontendManager::wait_result(uint64_t uid) {
   auto context = get_or_create_context(uid);
   std::unique_lock<std::mutex> lock(context->mutex);
   context->cv.wait(lock, [&]() { return context->finished; });
-  GenerateTextResult result;
-  result.uid = uid;
-  result.text = context->text;
-  result.token_ids = context->token_ids;
-  result.finished = context->finished;
+  auto result = make_text_result(uid, *context);
   lock.unlock();
 
   std::lock_guard<std::mutex> map_lock(contexts_mutex_);
   contexts_.erase(uid);
   return result;
+}
+
+async_simple::Future<GenerateTextResult> FrontendManager::wait_result_async(uint64_t uid) {
+  auto context = get_or_create_context(uid);
+  {
+    std::lock_guard<std::mutex> lock(context->mutex);
+    if (context->finished) {
+      auto result = make_text_result(uid, *context);
+      {
+        std::lock_guard<std::mutex> map_lock(contexts_mutex_);
+        contexts_.erase(uid);
+      }
+      return async_simple::makeReadyFuture(std::move(result));
+    }
+
+    async_simple::Promise<GenerateTextResult> promise;
+    auto future = promise.getFuture();
+    context->result_promise = std::move(promise);
+    return future;
+  }
 }
 
 bool FrontendManager::wait_next_chunk(uint64_t uid, GenerateResponse& response) {
@@ -353,6 +416,25 @@ bool FrontendManager::wait_next_chunk(uint64_t uid, GenerateResponse& response) 
     return true;
   }
   return false;
+}
+
+async_simple::Future<std::optional<GenerateResponse>> FrontendManager::wait_next_chunk_async(
+    uint64_t uid) {
+  auto context = get_or_create_context(uid);
+  std::lock_guard<std::mutex> lock(context->mutex);
+  if (!context->pending_chunks.empty()) {
+    auto response = std::move(context->pending_chunks.front());
+    context->pending_chunks.pop_front();
+    return async_simple::makeReadyFuture<std::optional<GenerateResponse>>(std::move(response));
+  }
+  if (context->finished) {
+    return async_simple::makeReadyFuture<std::optional<GenerateResponse>>(std::nullopt);
+  }
+
+  async_simple::Promise<std::optional<GenerateResponse>> promise;
+  auto future = promise.getFuture();
+  context->pending_chunk_promise = std::move(promise);
+  return future;
 }
 
 void FrontendManager::handle_detokenize(std::vector<DetokenizeMsg> msgs) {
@@ -370,14 +452,36 @@ void FrontendManager::handle_detokenize(std::vector<DetokenizeMsg> msgs) {
           response.incremental_output = chunks[i];
           response.finished = msgs[i].finished;
 
+          std::optional<async_simple::Promise<std::optional<GenerateResponse>>> chunk_promise;
+          std::optional<async_simple::Promise<GenerateTextResult>> result_promise;
+          std::optional<GenerateTextResult> result;
           {
             std::lock_guard<std::mutex> lock(context->mutex);
             context->token_ids.push_back(msgs[i].next_token);
             context->text += response.incremental_output;
-            context->pending_chunks.push_back(response);
+            if (context->pending_chunk_promise.has_value()) {
+              chunk_promise = std::move(context->pending_chunk_promise);
+              context->pending_chunk_promise.reset();
+            } else {
+              context->pending_chunks.push_back(response);
+            }
             if (msgs[i].finished) {
               context->finished = true;
+              if (context->result_promise.has_value()) {
+                result = make_text_result(msgs[i].uid, *context);
+                result_promise = std::move(context->result_promise);
+                context->result_promise.reset();
+              }
             }
+          }
+
+          if (chunk_promise.has_value()) {
+            chunk_promise->setValue(std::optional<GenerateResponse>(std::move(response)));
+          }
+          if (result_promise.has_value()) {
+            result_promise->setValue(std::move(*result));
+            std::lock_guard<std::mutex> map_lock(contexts_mutex_);
+            contexts_.erase(msgs[i].uid);
           }
           context->cv.notify_all();
         }
@@ -402,9 +506,29 @@ std::shared_ptr<RequestContext> FrontendManager::find_context(uint64_t uid) {
 }
 
 void FrontendManager::complete_request(const std::shared_ptr<RequestContext>& context) {
+  std::optional<async_simple::Promise<std::optional<GenerateResponse>>> chunk_promise;
+  std::optional<async_simple::Promise<GenerateTextResult>> result_promise;
+  std::optional<GenerateTextResult> result;
   {
     std::lock_guard<std::mutex> lock(context->mutex);
     context->finished = true;
+    if (context->pending_chunk_promise.has_value()) {
+      chunk_promise = std::move(context->pending_chunk_promise);
+      context->pending_chunk_promise.reset();
+    }
+    if (context->result_promise.has_value()) {
+      result = make_text_result(context->uid, *context);
+      result_promise = std::move(context->result_promise);
+      context->result_promise.reset();
+    }
+  }
+  if (chunk_promise.has_value()) {
+    chunk_promise->setValue(std::optional<GenerateResponse>{std::nullopt});
+  }
+  if (result_promise.has_value()) {
+    result_promise->setValue(std::move(*result));
+    std::lock_guard<std::mutex> map_lock(contexts_mutex_);
+    contexts_.erase(context->uid);
   }
   context->cv.notify_all();
 }
