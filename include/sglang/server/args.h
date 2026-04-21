@@ -30,7 +30,7 @@ struct ServerArgs {
   bool enable_cuda_graph = false;
   bool shell_mode = false;
   std::string cache_type = SchedulerConfig{}.cache_type;
-  bool enable_overlap_scheduling = false;
+  bool enable_overlap_scheduling = SchedulerConfig{}.enable_overlap_scheduling;
 
   bool share_tokenizer() const { return num_tokenizer_threads == 0; }
   SchedulerConfig to_scheduler_config() const;

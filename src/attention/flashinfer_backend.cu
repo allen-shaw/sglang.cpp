@@ -11,11 +11,13 @@
 #include <flashinfer/attention/variants.cuh>
 #include <flashinfer/attention/prefill_params.cuh>
 #include <flashinfer/attention/prefill.cuh>
+#include <ATen/cuda/CUDAContext.h>
+#include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAStream.h>
 
 using namespace flashinfer;
 
-namespace {
+namespace sglang::flashinfer_backend_detail {
 
 struct DecodePlanState {
     DecodePlanInfo plan_info;
@@ -37,9 +39,41 @@ size_t decode_plan_copy_bytes(const DecodePlanInfo& plan_info) {
     return bytes;
 }
 
-} // namespace
+__global__ void build_decode_indices_kernel(const int32_t* page_table,
+                                            int64_t page_table_rows,
+                                            int64_t page_table_stride,
+                                            int64_t page_table_cols,
+                                            const int32_t* table_indices,
+                                            const int32_t* kv_indptr,
+                                            int32_t* indices,
+                                            int batch_size) {
+    const int req_idx = blockIdx.x;
+    if (req_idx >= batch_size) {
+        return;
+    }
+
+    const int32_t table_idx = table_indices[req_idx];
+    const int32_t start = kv_indptr[req_idx];
+    const int32_t end = kv_indptr[req_idx + 1];
+    const int32_t len = end - start;
+    if (table_idx < 0 || table_idx >= page_table_rows || len <= 0) {
+        return;
+    }
+
+    for (int32_t pos = threadIdx.x; pos < len; pos += blockDim.x) {
+        indices[start + pos] =
+            pos < page_table_cols
+                ? page_table[static_cast<int64_t>(table_idx) * page_table_stride + pos]
+                : 0;
+    }
+}
+
+} // namespace sglang::flashinfer_backend_detail
 
 namespace sglang {
+
+using flashinfer_backend_detail::DecodePlanState;
+using flashinfer_backend_detail::decode_plan_copy_bytes;
 
 torch::Tensor FlashInferAttnMetadata::get_last_indices(int bs) const {
     return indptr.slice(0, 1, bs + 1) - 1;
@@ -68,6 +102,54 @@ torch::Tensor FlashInferBackend::get_ones_cpu(int bs) {
         {next_len},
         torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true));
     return cached_ones_cpu_.slice(0, 0, bs);
+}
+
+torch::Tensor FlashInferBackend::get_ones_device(int bs) {
+    if (bs <= cached_ones_device_.numel()) {
+        return cached_ones_device_.slice(0, 0, bs);
+    }
+
+    int next_len = 1;
+    while (next_len < bs) {
+        next_len <<= 1;
+    }
+    cached_ones_device_ = torch::ones(
+        {next_len},
+        torch::TensorOptions().dtype(torch::kInt32).device(kv_cache_->device()));
+    return cached_ones_device_.slice(0, 0, bs);
+}
+
+void FlashInferBackend::ensure_decode_workspace(int bs, int64_t total_kv_len) {
+    const auto host_options =
+        torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true);
+    const auto device_options =
+        torch::TensorOptions().dtype(torch::kInt32).device(kv_cache_->device());
+
+    if (decode_table_indices_host_.numel() < bs) {
+        int next_len = 1;
+        while (next_len < bs) {
+            next_len <<= 1;
+        }
+        decode_table_indices_host_ = torch::empty({next_len}, host_options);
+        decode_table_indices_device_ = torch::empty({next_len}, device_options);
+    }
+
+    if (decode_kv_indptr_host_.numel() < bs + 1) {
+        int next_len = 1;
+        while (next_len < bs + 1) {
+            next_len <<= 1;
+        }
+        decode_kv_indptr_host_ = torch::empty({next_len}, host_options);
+        decode_kv_indptr_device_ = torch::empty({next_len}, device_options);
+    }
+
+    if (decode_indices_device_.numel() < total_kv_len) {
+        int64_t next_len = 1;
+        while (next_len < total_kv_len) {
+            next_len <<= 1;
+        }
+        decode_indices_device_ = torch::empty({next_len}, device_options);
+    }
 }
 
 void FlashInferBackend::init_capture_graph(int max_seq_len,
@@ -270,6 +352,64 @@ void FlashInferBackend::prepare_metadata(Batch& batch) {
     int batch_size = batch.padded_reqs.size();
     auto device = kv_cache_->device();
     auto page_table = get_global_ctx()->page_table;
+
+    if (batch.is_decode()) {
+        int32_t total_kv_len = 0;
+        for (const auto& req : batch.padded_reqs) {
+            total_kv_len += req->device_len();
+        }
+
+        ensure_decode_workspace(batch_size, total_kv_len);
+        auto table_indices_host = decode_table_indices_host_.slice(0, 0, batch_size);
+        auto table_indices_device = decode_table_indices_device_.slice(0, 0, batch_size);
+        auto kv_indptr_host = decode_kv_indptr_host_.slice(0, 0, batch_size + 1);
+        auto kv_indptr_device = decode_kv_indptr_device_.slice(0, 0, batch_size + 1);
+        auto indices_device = decode_indices_device_.slice(0, 0, total_kv_len);
+
+        auto* table_indices_ptr = table_indices_host.data_ptr<int32_t>();
+        auto* kv_indptr_ptr = kv_indptr_host.data_ptr<int32_t>();
+        kv_indptr_ptr[0] = 0;
+        for (int i = 0; i < batch_size; ++i) {
+            const auto& req = batch.padded_reqs[i];
+            table_indices_ptr[i] = req->table_idx;
+            kv_indptr_ptr[i + 1] = kv_indptr_ptr[i] + req->device_len();
+            metadata->seq_lens.push_back(req->device_len());
+            metadata->cached_lens.push_back(req->cached_len);
+        }
+
+        table_indices_device.copy_(table_indices_host, /*non_blocking=*/true);
+        kv_indptr_device.copy_(kv_indptr_host, /*non_blocking=*/true);
+        if (total_kv_len > 0) {
+            constexpr int threads = 256;
+            auto stream = at::cuda::getCurrentCUDAStream();
+            flashinfer_backend_detail::build_decode_indices_kernel<<<batch_size, threads, 0, stream>>>(
+                page_table.data_ptr<int32_t>(),
+                page_table.size(0),
+                page_table.stride(0),
+                page_table.size(1),
+                table_indices_device.data_ptr<int32_t>(),
+                kv_indptr_device.data_ptr<int32_t>(),
+                indices_device.data_ptr<int32_t>(),
+                batch_size);
+            C10_CUDA_KERNEL_LAUNCH_CHECK();
+        }
+
+        metadata->qo_indptr_host.resize(batch_size + 1);
+        for (int i = 0; i <= batch_size; ++i) {
+            metadata->qo_indptr_host[i] = i;
+        }
+        metadata->kv_indptr_host.assign(kv_indptr_ptr, kv_indptr_ptr + batch_size + 1);
+        metadata->kv_indptr_host_tensor = kv_indptr_host;
+        metadata->last_page_len_host.assign(batch_size, 1);
+        metadata->indptr = kv_indptr_device;
+        metadata->indices = indices_device;
+        metadata->paged_kv_last_page_len = get_ones_device(batch_size);
+        metadata->initialized = false;
+        metadata->use_capture_buffers = false;
+
+        batch.attn_metadata = metadata;
+        return;
+    }
 
     std::vector<int32_t> qo_lens;
     std::vector<int32_t> kv_lens;

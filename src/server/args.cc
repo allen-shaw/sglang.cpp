@@ -148,6 +148,8 @@ ServerArgs ServerArgsParser::parse(const std::vector<std::string>& args) {
       result.silent_output = true;
     } else if (arg == "--enable-overlap-scheduling") {
       result.enable_overlap_scheduling = true;
+    } else if (arg == "--disable-overlap-scheduling") {
+      result.enable_overlap_scheduling = false;
     } else {
       throw std::invalid_argument("Unknown argument: " + arg);
     }

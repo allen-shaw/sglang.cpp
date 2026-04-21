@@ -56,6 +56,29 @@ TEST(ServerArgsTest, ParseBasicFlags) {
   EXPECT_TRUE(args.enable_overlap_scheduling);
 }
 
+TEST(ServerArgsTest, OverlapSchedulingDefaultsOnAndCanBeDisabled) {
+  auto default_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+  });
+  EXPECT_TRUE(default_args.enable_overlap_scheduling);
+
+  auto disabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--disable-overlap-scheduling",
+  });
+  EXPECT_FALSE(disabled_args.enable_overlap_scheduling);
+
+  auto reenabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--disable-overlap-scheduling",
+      "--enable-overlap-scheduling",
+  });
+  EXPECT_TRUE(reenabled_args.enable_overlap_scheduling);
+}
+
 TEST(ServerArgsTest, ShellModeTightensDefaults) {
   auto args = ServerArgsParser::parse(std::vector<std::string>{
       "--model-path",
@@ -68,6 +91,7 @@ TEST(ServerArgsTest, ShellModeTightensDefaults) {
   EXPECT_TRUE(args.shell_mode);
   EXPECT_TRUE(args.silent_output);
   EXPECT_EQ(args.max_running_req, 1);
+  EXPECT_TRUE(args.enable_overlap_scheduling);
 }
 
 TEST(ServerArgsTest, CudaGraphFlagAndDisableFlagWork) {

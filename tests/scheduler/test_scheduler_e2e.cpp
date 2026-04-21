@@ -66,6 +66,12 @@ SchedulerConfig make_test_scheduler_config_with_graph() {
   return config;
 }
 
+SchedulerConfig make_overlap_scheduler_config() {
+  auto config = make_test_scheduler_config();
+  config.enable_overlap_scheduling = true;
+  return config;
+}
+
 SchedulerConfig make_small_budget_scheduler_config(int max_extend_tokens,
                                                    int max_running_req = 4) {
   auto config = make_test_scheduler_config();
@@ -409,6 +415,64 @@ TEST(SchedulerE2ETest, DifferentMaxNewTokensFinishIndependently) {
   expect_request_finished(replies, long_request.uid, /*expected_tokens=*/4);
 }
 
+TEST(SchedulerE2ETest, OverlapSingleRequestTailFlushesToCompletion) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  Scheduler scheduler(make_overlap_scheduler_config());
+  auto request = make_request(/*uid=*/451, {1, 2, 3}, /*max_new_tokens=*/1);
+
+  scheduler.submit(request);
+  auto first_step = scheduler.step();
+
+  EXPECT_TRUE(first_step.empty());
+  EXPECT_TRUE(scheduler.has_work());
+
+  auto replies = scheduler.run_until_idle();
+  ASSERT_EQ(replies.size(), 1);
+  EXPECT_FALSE(scheduler.has_work());
+  expect_request_finished(replies, request.uid, /*expected_tokens=*/1);
+}
+
+TEST(SchedulerE2ETest, OverlapAndNonOverlapReturnSameGreedyTokenCounts) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  auto non_overlap_config = make_test_scheduler_config();
+  auto overlap_config = non_overlap_config;
+  overlap_config.enable_overlap_scheduling = true;
+
+  std::vector<GenerateRequest> requests = {
+      make_request(/*uid=*/461, {1, 2, 3}, /*max_new_tokens=*/2),
+      make_request(/*uid=*/462, {4, 5, 6, 7}, /*max_new_tokens=*/3),
+      make_request(/*uid=*/463, {8, 9, 10}, /*max_new_tokens=*/1),
+  };
+
+  Scheduler non_overlap_scheduler(non_overlap_config);
+  for (const auto& request : requests) {
+    non_overlap_scheduler.submit(request);
+  }
+  auto non_overlap_replies = non_overlap_scheduler.run_until_idle();
+
+  Scheduler overlap_scheduler(overlap_config);
+  for (const auto& request : requests) {
+    overlap_scheduler.submit(request);
+  }
+  auto overlap_replies = overlap_scheduler.run_until_idle();
+
+  ASSERT_EQ(overlap_replies.size(), non_overlap_replies.size());
+  EXPECT_FALSE(overlap_scheduler.has_work());
+  for (const auto& request : requests) {
+    EXPECT_EQ(collect_generated_ids_for_uid(overlap_replies, request.uid).size(),
+              collect_generated_ids_for_uid(non_overlap_replies, request.uid).size());
+    expect_request_finished(overlap_replies,
+                            request.uid,
+                            collect_generated_ids_for_uid(non_overlap_replies, request.uid).size());
+  }
+}
+
 TEST(SchedulerE2ETest, AbortRunningDecodeRequestStopsFurtherTokensForThatRequest) {
   if (!torch::cuda::is_available()) {
     GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
@@ -435,6 +499,39 @@ TEST(SchedulerE2ETest, AbortRunningDecodeRequestStopsFurtherTokensForThatRequest
 
   ASSERT_EQ(grouped[request_a.uid].size(), 1);
   EXPECT_FALSE(grouped[request_a.uid][0].finished);
+  ASSERT_EQ(grouped[request_b.uid].size(), 2);
+  EXPECT_FALSE(scheduler.has_work());
+  expect_request_finished(all_replies, request_b.uid, /*expected_tokens=*/2);
+}
+
+TEST(SchedulerE2ETest, OverlapAbortInFlightSuppressesExtraTokenAndRecyclesSlot) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Scheduler E2E test";
+  }
+
+  auto config = make_overlap_scheduler_config();
+  config.max_running_req = 1;
+  Scheduler scheduler(config);
+  auto request_a = make_request(/*uid=*/551, {30, 31, 32}, /*max_new_tokens=*/4);
+  auto request_b = make_request(/*uid=*/552, {40, 41, 42}, /*max_new_tokens=*/2);
+
+  scheduler.submit(request_a);
+  EXPECT_TRUE(scheduler.step().empty());
+  auto first_replies = scheduler.step();
+
+  ASSERT_EQ(first_replies.size(), 1);
+  EXPECT_EQ(first_replies[0].uid, request_a.uid);
+  EXPECT_FALSE(first_replies[0].finished);
+
+  scheduler.abort(request_a.uid);
+  scheduler.submit(request_b);
+  auto remaining_replies = scheduler.run_until_idle();
+
+  std::vector<DetokenizeMsg> all_replies = first_replies;
+  all_replies.insert(all_replies.end(), remaining_replies.begin(), remaining_replies.end());
+  auto grouped = group_by_uid(all_replies);
+
+  ASSERT_EQ(grouped[request_a.uid].size(), 1);
   ASSERT_EQ(grouped[request_b.uid].size(), 2);
   EXPECT_FALSE(scheduler.has_work());
   expect_request_finished(all_replies, request_b.uid, /*expected_tokens=*/2);
