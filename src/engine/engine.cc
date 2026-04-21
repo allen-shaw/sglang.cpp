@@ -18,6 +18,7 @@
 #include <torch/cuda.h>
 
 #include "sglang/attention/flashinfer_backend.h"
+#include "sglang/engine/sampling.h"
 #include "sglang/kvcache/mha_kvcache.h"
 #include "sglang/models/llama.h"
 #include "sglang/models/mistral.h"
@@ -137,6 +138,22 @@ torch::Tensor sample_row(torch::Tensor logits,
     return torch::multinomial(probs, 1);
 }
 
+torch::Tensor sample_torch_fallback(const torch::Tensor& logits,
+                                    const BatchSamplingArgs& args,
+                                    int vocab_size) {
+    auto logits_fp32 = logits.to(torch::kFloat32);
+    std::vector<torch::Tensor> rows;
+    rows.reserve(logits_fp32.size(0));
+    for (int64_t i = 0; i < logits_fp32.size(0); ++i) {
+        const float temperature = args.temperatures[i].item<float>();
+        const int32_t top_k =
+            args.top_k.defined() ? args.top_k[i].item<int32_t>() : vocab_size;
+        const float top_p = args.top_p.defined() ? args.top_p[i].item<float>() : 1.0F;
+        rows.push_back(sample_row(logits_fp32[i], temperature, top_k, top_p));
+    }
+    return torch::cat(rows, 0);
+}
+
 torch::Tensor select_sampling_logits(const Batch& batch, const torch::Tensor& logits) {
     if (!batch.is_prefill()) {
         return logits.slice(0, 0, batch.size());
@@ -216,17 +233,45 @@ torch::Tensor Sampler::sample(const torch::Tensor& logits,
         return torch::argmax(logits, -1);
     }
 
-    auto logits_fp32 = logits.to(torch::kFloat32);
-    std::vector<torch::Tensor> rows;
-    rows.reserve(logits_fp32.size(0));
-    for (int64_t i = 0; i < logits_fp32.size(0); ++i) {
-        const float temperature = args.temperatures[i].item<float>();
-        const int32_t top_k =
-            args.top_k.defined() ? args.top_k[i].item<int32_t>() : vocab_size_;
-        const float top_p = args.top_p.defined() ? args.top_p[i].item<float>() : 1.0F;
-        rows.push_back(sample_row(logits_fp32[i], temperature, top_k, top_p));
+    if (!logits.is_cuda()) {
+        return sample_torch_fallback(logits, args, vocab_size_);
     }
-    return torch::cat(rows, 0);
+
+    constexpr int64_t kMaxSamplingRounds = 32;
+    const int64_t batch_size = logits.size(0);
+    auto logits_fp32 = logits.to(torch::kFloat32);
+    auto temperatures = args.temperatures.to(logits.device()).to(torch::kFloat32).view({batch_size, 1});
+    auto probs = torch::softmax(logits_fp32 / temperatures, -1).contiguous();
+    const bool deterministic = false;
+
+    if (!args.top_k.defined() && !args.top_p.defined()) {
+        auto uniform_samples =
+            torch::rand({batch_size},
+                        torch::TensorOptions().dtype(torch::kFloat32).device(logits.device()));
+        return flashinfer_sample_from_probs(probs, uniform_samples, deterministic);
+    }
+
+    auto uniform_samples =
+        torch::rand({kMaxSamplingRounds, batch_size},
+                    torch::TensorOptions().dtype(torch::kFloat32).device(logits.device()));
+    FlashInferSamplingResult result;
+    if (args.top_k.defined() && !args.top_p.defined()) {
+        auto top_k = args.top_k.to(logits.device()).to(torch::kFloat32).contiguous();
+        result = flashinfer_top_k_sample_from_probs(probs, uniform_samples, top_k, 0, deterministic);
+    } else if (!args.top_k.defined() && args.top_p.defined()) {
+        auto top_p = args.top_p.to(logits.device()).to(torch::kFloat32).contiguous();
+        result = flashinfer_top_p_sample_from_probs(probs, uniform_samples, top_p, 0.0, deterministic);
+    } else {
+        auto top_k = args.top_k.to(logits.device()).to(torch::kInt32).contiguous();
+        auto top_p = args.top_p.to(logits.device()).to(torch::kFloat32).contiguous();
+        result = flashinfer_top_k_top_p_sample_from_probs(
+            probs, uniform_samples, top_k, 0.0, top_p, 0.0, deterministic);
+    }
+
+    if (result.success.defined() && !result.success.all().item<bool>()) {
+        return sample_torch_fallback(logits, args, vocab_size_);
+    }
+    return result.samples;
 }
 
 Engine::ModelRunner Engine::create_model_runner(const ModelConfig& model_config) {
@@ -370,6 +415,7 @@ Engine::Engine(const EngineConfig& config)
         config_.cuda_graph_batch_sizes,
         graph_max_bs,
         page_table_.size(1),
+        config_.cuda_graph_capture_max_seq_len,
         model_config_.vocab_size,
         ctx_,
         attn_backend_,
@@ -458,6 +504,7 @@ GraphRunner::GraphRunner(torch::Device device,
                          std::vector<int> batch_sizes,
                          int max_batch_size,
                          int max_seq_len,
+                         int capture_max_seq_len,
                          int vocab_size,
                          std::shared_ptr<Context> ctx,
                          std::shared_ptr<BaseAttnBackend> attn_backend,
@@ -468,6 +515,7 @@ GraphRunner::GraphRunner(torch::Device device,
       enable_cuda_graph_(enable_cuda_graph),
       graph_batch_sizes_(determine_batch_sizes(enable_cuda_graph, std::move(batch_sizes), max_batch_size)),
       max_batch_size_(graph_batch_sizes_.empty() ? 0 : graph_batch_sizes_.back()),
+      capture_max_seq_len_(capture_max_seq_len > 0 ? std::min(capture_max_seq_len, max_seq_len) : max_seq_len),
       ctx_(std::move(ctx)),
       attn_backend_(std::move(attn_backend)),
       model_forward_(std::move(model_forward)),
@@ -500,9 +548,13 @@ std::vector<int> GraphRunner::determine_batch_sizes(bool enable_cuda_graph,
 }
 
 bool GraphRunner::can_use_cuda_graph(const Batch& batch) const {
-    return enable_cuda_graph_ && batch.is_decode() &&
-           !graph_batch_sizes_.empty() &&
-           batch.size() <= max_batch_size_;
+    if (!enable_cuda_graph_ || !batch.is_decode() ||
+        graph_batch_sizes_.empty() || batch.size() > max_batch_size_) {
+        return false;
+    }
+    return std::all_of(batch.reqs.begin(), batch.reqs.end(), [this](const auto& req) {
+        return req->device_len() <= capture_max_seq_len_;
+    });
 }
 
 void GraphRunner::pad_batch(Batch& batch) const {
@@ -554,7 +606,14 @@ void GraphRunner::capture_graphs(int max_seq_len, int vocab_size) {
     }
 
     c10::InferenceMode inference_guard(true);
-    attn_backend_->init_capture_graph(max_seq_len, graph_batch_sizes_);
+    std::cerr << "[sglang.cpp graph] capture batch sizes:";
+    for (int batch_size : graph_batch_sizes_) {
+        std::cerr << " " << batch_size;
+    }
+    std::cerr << ", capture_max_seq_len=" << capture_max_seq_len_
+              << ", model_max_seq_len=" << max_seq_len << std::endl;
+
+    attn_backend_->init_capture_graph(capture_max_seq_len_, graph_batch_sizes_);
 
     c10::cuda::CUDAGuard device_guard(device_);
     c10::cuda::CUDAStreamGuard stream_guard(stream_);
@@ -563,6 +622,7 @@ void GraphRunner::capture_graphs(int max_seq_len, int vocab_size) {
     std::optional<at::cuda::MempoolId_t> pool;
     for (auto it = graph_batch_sizes_.rbegin(); it != graph_batch_sizes_.rend(); ++it) {
         const int batch_size = *it;
+        std::cerr << "[sglang.cpp graph] capturing bs=" << batch_size << std::endl;
         GraphCaptureState state;
         state.batch_size = batch_size;
         state.batch = std::make_shared<Batch>();
@@ -596,7 +656,9 @@ void GraphRunner::capture_graphs(int max_seq_len, int vocab_size) {
             pool = state.graph->pool();
         }
         graph_map_.emplace(batch_size, std::move(state));
+        std::cerr << "[sglang.cpp graph] captured bs=" << batch_size << std::endl;
     }
+    std::cerr << "[sglang.cpp graph] finished capture" << std::endl;
 }
 
 torch::Tensor GraphRunner::replay(Batch& batch) {

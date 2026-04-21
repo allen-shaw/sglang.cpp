@@ -111,6 +111,7 @@ set(SGLANG_CORE_SRCS
     src/models/weight_loader.cc
     src/moe/moe.cc
     src/engine/config.cc
+    src/engine/sampling.cu
     src/engine/engine.cc
     src/scheduler/prefill.cc
     src/scheduler/decode.cc

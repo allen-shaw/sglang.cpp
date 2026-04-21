@@ -81,6 +81,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sglang-enable-graph", action="store_true")
     parser.add_argument("--sglang-graph-max-bs", type=int, default=0)
     parser.add_argument("--sglang-graph-batch-sizes", default="")
+    parser.add_argument("--sglang-graph-capture-max-seq-len", type=int, default=1024)
     parser.add_argument("--server-timeout", type=float, default=180.0)
     return parser
 
@@ -384,6 +385,10 @@ def start_sglang_server(args: argparse.Namespace, output_dir: Path) -> ServerHan
     if args.sglang_enable_graph:
         graph_max_bs = args.sglang_graph_max_bs or args.max_running_requests
         cmd.extend(["--graph", str(graph_max_bs)])
+        cmd.extend([
+            "--cuda-graph-capture-max-seq-len",
+            str(args.sglang_graph_capture_max_seq_len),
+        ])
         if args.sglang_graph_batch_sizes:
             cmd.extend(["--cuda-graph-batch-sizes", args.sglang_graph_batch_sizes])
     log_file = log_path.open("w")

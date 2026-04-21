@@ -26,6 +26,10 @@ struct BenchOptions {
   int warmup_tokens = 8;
   std::optional<int> max_seq_len_override = 4096;
   std::optional<int> num_pages_override;
+  bool enable_cuda_graph = false;
+  std::optional<int> cuda_graph_max_batch_size;
+  std::vector<int> cuda_graph_batch_sizes;
+  int cuda_graph_capture_max_seq_len = 1024;
   std::vector<int> batch_sizes = {1, 8, 32, 128};
   std::vector<int> input_lengths = {128, 512, 1024};
   std::vector<int> output_lengths = {128, 512};
@@ -95,6 +99,9 @@ void print_usage(const char* binary) {
       << "  --warmup-tokens N\n"
       << "  --max-seq-len-override N\n"
       << "  --num-pages N\n"
+      << "  --graph N | --cuda-graph-max-bs N\n"
+      << "  --cuda-graph-batch-sizes 1,2,4,8\n"
+      << "  --cuda-graph-capture-max-seq-len N\n"
       << "  --batch-sizes 1,8,32\n"
       << "  --input-lens 128,512,1024\n"
       << "  --output-lens 128,512\n";
@@ -131,6 +138,14 @@ void parse_custom_args(int* argc, char** argv) {
       g_options.max_seq_len_override = std::stoi(require_value(*argc, argv, &i));
     } else if (arg == "--num-pages") {
       g_options.num_pages_override = std::stoi(require_value(*argc, argv, &i));
+    } else if (arg == "--graph" || arg == "--cuda-graph-max-bs") {
+      g_options.enable_cuda_graph = true;
+      g_options.cuda_graph_max_batch_size = std::stoi(require_value(*argc, argv, &i));
+    } else if (arg == "--cuda-graph-batch-sizes") {
+      g_options.enable_cuda_graph = true;
+      g_options.cuda_graph_batch_sizes = parse_csv_ints(require_value(*argc, argv, &i));
+    } else if (arg == "--cuda-graph-capture-max-seq-len") {
+      g_options.cuda_graph_capture_max_seq_len = std::stoi(require_value(*argc, argv, &i));
     } else if (arg == "--batch-sizes") {
       g_options.batch_sizes = parse_csv_ints(require_value(*argc, argv, &i));
     } else if (arg == "--input-lens") {
@@ -163,6 +178,10 @@ ServerArgs make_server_args() {
   args.num_pages_override = g_options.num_pages_override;
   args.max_seq_len_override = g_options.max_seq_len_override;
   args.use_dummy_weight = g_options.use_dummy_weight;
+  args.enable_cuda_graph = g_options.enable_cuda_graph;
+  args.cuda_graph_max_batch_size = g_options.cuda_graph_max_batch_size;
+  args.cuda_graph_batch_sizes = g_options.cuda_graph_batch_sizes;
+  args.cuda_graph_capture_max_seq_len = g_options.cuda_graph_capture_max_seq_len;
   args.num_tokenizer_threads = 0;
   return args;
 }
@@ -247,7 +266,7 @@ void register_benchmarks() {
         std::string name = "offline_generate/bs_" + std::to_string(batch_size) +
                            "/in_" + std::to_string(input_len) +
                            "/out_" + std::to_string(output_len);
-        benchmark::RegisterBenchmark(name.c_str(), &run_offline_batch)
+    benchmark::RegisterBenchmark(name.c_str(), &run_offline_batch)
             ->Args({batch_size, input_len, output_len})
             ->Unit(benchmark::kMillisecond)
             ->UseRealTime();
@@ -272,6 +291,7 @@ int main(int argc, char** argv) {
     sglang::register_benchmarks();
     benchmark::RunSpecifiedBenchmarks();
     benchmark::Shutdown();
+    sglang::g_llm.reset();
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "offline benchmark failed: " << error.what() << std::endl;

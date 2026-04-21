@@ -25,6 +25,7 @@ struct ServerArgs {
   std::optional<int> max_seq_len_override;
   std::optional<int> cuda_graph_max_batch_size;
   std::vector<int> cuda_graph_batch_sizes;
+  int cuda_graph_capture_max_seq_len = SchedulerConfig{}.cuda_graph_capture_max_seq_len;
   bool use_dummy_weight = false;
   bool enable_cuda_graph = false;
   bool shell_mode = false;

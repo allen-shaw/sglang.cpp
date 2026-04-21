@@ -80,6 +80,7 @@ SchedulerConfig ServerArgs::to_scheduler_config() const {
   config.enable_cuda_graph = enable_cuda_graph;
   config.cuda_graph_max_batch_size = cuda_graph_max_batch_size;
   config.cuda_graph_batch_sizes = cuda_graph_batch_sizes;
+  config.cuda_graph_capture_max_seq_len = cuda_graph_capture_max_seq_len;
   config.max_seq_len_override = max_seq_len_override;
   config.num_pages_override = num_pages_override;
   config.max_extend_tokens = max_extend_tokens;
@@ -137,6 +138,8 @@ ServerArgs ServerArgsParser::parse(const std::vector<std::string>& args) {
     } else if (arg == "--cuda-graph-batch-sizes") {
       result.enable_cuda_graph = true;
       result.cuda_graph_batch_sizes = parse_int_list(require_value(args, &i));
+    } else if (arg == "--cuda-graph-capture-max-seq-len") {
+      result.cuda_graph_capture_max_seq_len = parse_int(require_value(args, &i));
     } else if (arg == "--cache-type") {
       result.cache_type = require_value(args, &i);
     } else if (arg == "--shell-mode") {

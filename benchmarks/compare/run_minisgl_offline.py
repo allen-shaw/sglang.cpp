@@ -78,6 +78,8 @@ def make_sampling_params(batch_size: int, output_len: int) -> list[SamplingParam
 
 
 def output_token_count(result: object) -> int:
+    if isinstance(result, dict) and "token_ids" in result:
+        return len(result["token_ids"])  # type: ignore[arg-type]
     if isinstance(result, list):
         return len(result)
     if hasattr(result, "__len__"):

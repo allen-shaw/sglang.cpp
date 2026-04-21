@@ -99,6 +99,7 @@ class GraphRunner {
                 std::vector<int> batch_sizes,
                 int max_batch_size,
                 int max_seq_len,
+                int capture_max_seq_len,
                 int vocab_size,
                 std::shared_ptr<Context> ctx,
                 std::shared_ptr<BaseAttnBackend> attn_backend,
@@ -139,6 +140,7 @@ class GraphRunner {
     bool enable_cuda_graph_ = false;
     std::vector<int> graph_batch_sizes_;
     int max_batch_size_ = 0;
+    int capture_max_seq_len_ = 0;
     std::shared_ptr<Context> ctx_;
     std::shared_ptr<BaseAttnBackend> attn_backend_;
     std::function<torch::Tensor(const torch::Tensor&, const torch::Tensor&)> model_forward_;
