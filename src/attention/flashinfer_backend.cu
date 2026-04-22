@@ -256,6 +256,16 @@ void FlashInferBackend::prepare_for_replay(Batch& batch) {
     TORCH_CHECK(plan_state->kv_chunk_size > 0, "Invalid FlashInfer decode kv chunk size");
 
     auto* kv_indptr_h = capture_metadata->kv_indptr_host_tensor.data_ptr<int32_t>();
+    auto* pinned_workspace = pinned_int_workspace_.data_ptr<uint8_t>();
+    auto* request_indices_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.request_indices_offset);
+    auto* kv_tile_indices_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.kv_tile_indices_offset);
+    auto* o_indptr_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.o_indptr_offset);
+    auto* kv_chunk_size_h =
+        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.kv_chunk_size_ptr_offset);
+
     auto [request_indices_vec, kv_tile_indices_vec, o_indptr_vec] =
         DecodeSplitKVIndptr<int32_t>(
             kv_indptr_h, static_cast<uint32_t>(batch_size),
@@ -267,16 +277,6 @@ void FlashInferBackend::prepare_for_replay(Batch& batch) {
                 "FlashInfer replay KV tile count exceeds captured plan capacity");
     TORCH_CHECK(o_indptr_vec.size() == static_cast<size_t>(batch_size + 1),
                 "Invalid FlashInfer replay o_indptr size");
-
-    auto* pinned_workspace = pinned_int_workspace_.data_ptr<uint8_t>();
-    auto* request_indices_h =
-        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.request_indices_offset);
-    auto* kv_tile_indices_h =
-        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.kv_tile_indices_offset);
-    auto* o_indptr_h =
-        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.o_indptr_offset);
-    auto* kv_chunk_size_h =
-        reinterpret_cast<int32_t*>(pinned_workspace + plan_info.kv_chunk_size_ptr_offset);
 
     std::fill(request_indices_h, request_indices_h + plan_info.padded_batch_size, 0);
     std::fill(kv_tile_indices_h, kv_tile_indices_h + plan_info.padded_batch_size, 0);
@@ -290,6 +290,9 @@ void FlashInferBackend::prepare_for_replay(Batch& batch) {
         auto* block_valid_mask_h =
             reinterpret_cast<bool*>(pinned_workspace + plan_info.block_valid_mask_offset);
         std::fill(block_valid_mask_h, block_valid_mask_h + plan_info.padded_batch_size, false);
+        std::fill(block_valid_mask_h + request_indices_vec.size(),
+                  block_valid_mask_h + plan_info.padded_batch_size,
+                  false);
         std::fill(block_valid_mask_h, block_valid_mask_h + request_indices_vec.size(), true);
     }
 

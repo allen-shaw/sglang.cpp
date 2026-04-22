@@ -70,6 +70,9 @@ class Scheduler {
     std::vector<DetokenizeMsg> step_overlap();
     bool pending_uses_req(uint64_t uid) const;
     void release_deferred_req(uint64_t uid);
+    void flush_deferred_resource_actions();
+    void cache_req_or_defer(const std::shared_ptr<Req>& req, bool finished);
+    void free_req_resources_or_defer(const std::shared_ptr<Req>& req);
     void free_req_resources(const std::shared_ptr<Req>& req);
 
     SchedulerConfig config_;
@@ -96,6 +99,7 @@ class Scheduler {
     std::unordered_set<uint64_t> suppressed_reqs_;
     std::unordered_set<uint64_t> freed_reqs_;
     std::unordered_map<uint64_t, std::shared_ptr<Req>> deferred_free_reqs_;
+    std::vector<std::pair<std::shared_ptr<Req>, bool>> deferred_resource_actions_;
 };
 
 }  // namespace sglang

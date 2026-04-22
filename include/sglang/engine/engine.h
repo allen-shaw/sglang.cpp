@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <unordered_map>
@@ -40,8 +41,17 @@ class Sampler {
     torch::Tensor sample(const torch::Tensor& logits, const BatchSamplingArgs& args) const;
 
  private:
+    void ensure_prepare_workspace(int64_t batch_size) const;
+
     torch::Device device_;
     int vocab_size_;
+    mutable torch::Tensor temperatures_host_;
+    mutable std::array<torch::Tensor, 2> temperatures_device_;
+    mutable torch::Tensor top_k_host_;
+    mutable std::array<torch::Tensor, 2> top_k_device_;
+    mutable torch::Tensor top_p_host_;
+    mutable std::array<torch::Tensor, 2> top_p_device_;
+    mutable int prepare_slot_ = 0;
 };
 
 class Engine {

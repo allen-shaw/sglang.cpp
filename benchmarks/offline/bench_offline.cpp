@@ -29,7 +29,7 @@ struct BenchOptions {
   bool enable_cuda_graph = false;
   std::optional<int> cuda_graph_max_batch_size;
   std::vector<int> cuda_graph_batch_sizes;
-  int cuda_graph_capture_max_seq_len = 1024;
+  int cuda_graph_capture_max_seq_len = 4096;
   std::vector<int> batch_sizes = {1, 8, 32, 128};
   std::vector<int> input_lengths = {128, 512, 1024};
   std::vector<int> output_lengths = {128, 512};

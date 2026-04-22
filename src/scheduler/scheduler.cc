@@ -91,6 +91,42 @@ struct SchedulerProfileStats {
     }
 };
 
+struct PrepareProfileStats {
+    int64_t steps = 0;
+    int64_t pad_alloc_us = 0;
+    int64_t workspace_us = 0;
+    int64_t h2d_us = 0;
+    int64_t gather_us = 0;
+    int64_t attn_us = 0;
+    int64_t sampling_args_us = 0;
+
+    void add(int64_t pad_alloc,
+             int64_t workspace,
+             int64_t h2d,
+             int64_t gather,
+             int64_t attn,
+             int64_t sampling_args) {
+        ++steps;
+        pad_alloc_us += pad_alloc;
+        workspace_us += workspace;
+        h2d_us += h2d;
+        gather_us += gather;
+        attn_us += attn;
+        sampling_args_us += sampling_args;
+        if (steps % 64 == 0) {
+            const double denom = static_cast<double>(steps);
+            std::cerr << "[sglang.cpp profile] prepare steps=" << steps
+                      << " avg_pad_alloc_us=" << pad_alloc_us / denom
+                      << " avg_workspace_us=" << workspace_us / denom
+                      << " avg_h2d_us=" << h2d_us / denom
+                      << " avg_gather_us=" << gather_us / denom
+                      << " avg_attn_us=" << attn_us / denom
+                      << " avg_sampling_args_us=" << sampling_args_us / denom
+                      << std::endl;
+        }
+    }
+};
+
 }  // namespace
 
 Scheduler::Scheduler(const SchedulerConfig& config)
@@ -192,9 +228,13 @@ void Scheduler::ensure_prepare_workspace(int64_t token_count, int64_t req_count)
 
 ForwardInput Scheduler::prepare_batch(const std::shared_ptr<Batch>& batch) {
     c10::cuda::CUDAStreamGuard stream_guard(scheduler_stream_);
+    const bool collect_profile = profile_enabled();
+    const auto pad_alloc_start = std::chrono::steady_clock::now();
     engine_.pad_batch(*batch);
     cache_manager_.allocate_paged(batch->reqs);
+    const auto pad_alloc_end = std::chrono::steady_clock::now();
 
+    const auto workspace_start = std::chrono::steady_clock::now();
     int64_t token_count = 0;
     for (const auto& req : batch->padded_reqs) {
         token_count += req->extend_len();
@@ -221,7 +261,9 @@ ForwardInput Scheduler::prepare_batch(const std::shared_ptr<Batch>& batch) {
         }
     }
     TORCH_CHECK(offset == token_count, "Prepared token count mismatch");
+    const auto workspace_end = std::chrono::steady_clock::now();
 
+    const auto h2d_start = std::chrono::steady_clock::now();
     positions_i32_device.copy_(positions_i32_host, /*non_blocking=*/true);
     positions_i64_device.copy_(positions_i64_host, /*non_blocking=*/true);
     mapping_device.copy_(mapping_host, /*non_blocking=*/true);
@@ -243,14 +285,32 @@ ForwardInput Scheduler::prepare_batch(const std::shared_ptr<Batch>& batch) {
     write_mapping_device.copy_(write_mapping_host, /*non_blocking=*/true);
     write_positions_device.copy_(write_positions_host, /*non_blocking=*/true);
     auto write_tuple = std::make_pair(write_mapping_device, write_positions_device);
+    const auto h2d_end = std::chrono::steady_clock::now();
 
+    const auto gather_start = std::chrono::steady_clock::now();
     batch->out_loc = gather_int32_2d(engine_.page_table(), input_tuple.first, input_tuple.second);
     batch->input_ids =
         gather_int32_2d(table_manager_.token_pool(), input_tuple.first, input_tuple.second);
+    const auto gather_end = std::chrono::steady_clock::now();
+
+    const auto attn_start = std::chrono::steady_clock::now();
     engine_.prepare_attention_metadata(*batch);
+    const auto attn_end = std::chrono::steady_clock::now();
+    const auto sampling_args_start = std::chrono::steady_clock::now();
+    auto sample_args = engine_.prepare_sampling_args(*batch);
+    const auto sampling_args_end = std::chrono::steady_clock::now();
+    if (collect_profile) {
+        static thread_local PrepareProfileStats profile_stats;
+        profile_stats.add(elapsed_us(pad_alloc_start, pad_alloc_end),
+                          elapsed_us(workspace_start, workspace_end),
+                          elapsed_us(h2d_start, h2d_end),
+                          elapsed_us(gather_start, gather_end),
+                          elapsed_us(attn_start, attn_end),
+                          elapsed_us(sampling_args_start, sampling_args_end));
+    }
     return ForwardInput{
         batch,
-        engine_.prepare_sampling_args(*batch),
+        std::move(sample_args),
         input_tuple,
         write_tuple,
     };
@@ -340,10 +400,10 @@ std::vector<DetokenizeMsg> Scheduler::process_forward_output(const ForwardInput&
                 suppressed_reqs_.insert(req->req_id);
                 deferred_free_reqs_[req->req_id] = req;
             } else {
-                free_req_resources(req);
+                free_req_resources_or_defer(req);
             }
         } else if (input.batch->is_prefill() && !pending_uses_req(req->req_id)) {
-            cache_manager_.cache_req(req, /*finished=*/false);
+            cache_req_or_defer(req, /*finished=*/false);
         }
 
         reply.push_back(DetokenizeMsg{req->req_id, next_token_value, finished});
@@ -359,6 +419,8 @@ std::vector<DetokenizeMsg> Scheduler::process_forward_output(const ForwardInput&
 }
 
 std::optional<PendingForward> Scheduler::launch_next_forward() {
+    flush_deferred_resource_actions();
+
     const auto schedule_start = std::chrono::steady_clock::now();
     auto batch = schedule_next_batch();
     const auto schedule_end = std::chrono::steady_clock::now();
@@ -404,10 +466,45 @@ bool Scheduler::pending_uses_req(uint64_t uid) const {
 void Scheduler::release_deferred_req(uint64_t uid) {
     auto it = deferred_free_reqs_.find(uid);
     if (it != deferred_free_reqs_.end()) {
-        free_req_resources(it->second);
+        free_req_resources_or_defer(it->second);
         deferred_free_reqs_.erase(it);
     }
     suppressed_reqs_.erase(uid);
+}
+
+void Scheduler::flush_deferred_resource_actions() {
+    if (deferred_resource_actions_.empty()) {
+        return;
+    }
+    if (last_forward_done_event_) {
+        last_forward_done_event_->synchronize();
+    }
+
+    auto actions = std::move(deferred_resource_actions_);
+    deferred_resource_actions_.clear();
+    for (const auto& [req, finished] : actions) {
+        if (finished) {
+            free_req_resources(req);
+        } else {
+            cache_manager_.cache_req(req, /*finished=*/false);
+        }
+    }
+}
+
+void Scheduler::cache_req_or_defer(const std::shared_ptr<Req>& req, bool finished) {
+    if (config_.enable_overlap_scheduling && pending_forward_.has_value()) {
+        deferred_resource_actions_.push_back({req, finished});
+        return;
+    }
+    cache_manager_.cache_req(req, finished);
+}
+
+void Scheduler::free_req_resources_or_defer(const std::shared_ptr<Req>& req) {
+    if (config_.enable_overlap_scheduling && pending_forward_.has_value()) {
+        deferred_resource_actions_.push_back({req, true});
+        return;
+    }
+    free_req_resources(req);
 }
 
 void Scheduler::free_req_resources(const std::shared_ptr<Req>& req) {
@@ -528,7 +625,8 @@ std::vector<DetokenizeMsg> Scheduler::run_until_idle() {
 }
 
 bool Scheduler::has_work() const {
-    return pending_forward_.has_value() || prefill_manager_.runnable() || decode_manager_.runnable();
+    return pending_forward_.has_value() || !deferred_resource_actions_.empty() ||
+           prefill_manager_.runnable() || decode_manager_.runnable();
 }
 
 }  // namespace sglang

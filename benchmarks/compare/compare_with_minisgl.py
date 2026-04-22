@@ -81,7 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sglang-enable-graph", action="store_true")
     parser.add_argument("--sglang-graph-max-bs", type=int, default=0)
     parser.add_argument("--sglang-graph-batch-sizes", default="")
-    parser.add_argument("--sglang-graph-capture-max-seq-len", type=int, default=1024)
+    parser.add_argument("--sglang-graph-capture-max-seq-len", type=int, default=4096)
+    parser.add_argument("--sglang-disable-overlap-scheduling", action="store_true")
     parser.add_argument("--server-timeout", type=float, default=180.0)
     return parser
 
@@ -194,6 +195,8 @@ def maybe_add_common_args(cmd: list[str], args: argparse.Namespace) -> list[str]
         cmd.extend(["--num-pages", str(args.num_pages_override)])
     if args.dummy_weight:
         cmd.append("--dummy-weight")
+    if getattr(args, "sglang_disable_overlap_scheduling", False):
+        cmd.append("--disable-overlap-scheduling")
     return cmd
 
 
@@ -435,6 +438,8 @@ def start_minisgl_server(args: argparse.Namespace, output_dir: Path) -> ServerHa
     env = os.environ.copy()
     mini_python = str(Path(args.mini_root) / "python")
     env["PYTHONPATH"] = mini_python + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+    conda_bin = str(Path(args.python).resolve().parent)
+    env["PATH"] = conda_bin + os.pathsep + env.get("PATH", "")
     log_file = log_path.open("w")
     process = subprocess.Popen(
         cmd,

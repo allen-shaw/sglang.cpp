@@ -96,14 +96,6 @@ bool contains_token(const std::string& haystack, const std::string& needle) {
     return haystack.find(needle) != std::string::npos;
 }
 
-torch::Tensor make_tensor(const std::vector<float>& data, torch::Device device) {
-    return torch::tensor(data, torch::TensorOptions().dtype(torch::kFloat32).device(device));
-}
-
-torch::Tensor make_tensor(const std::vector<int32_t>& data, torch::Device device) {
-    return torch::tensor(data, torch::TensorOptions().dtype(torch::kInt32).device(device));
-}
-
 torch::Tensor sample_row(torch::Tensor logits,
                          float temperature,
                          int32_t top_k,
@@ -189,27 +181,69 @@ void ForwardOutput::synchronize() const {
 Sampler::Sampler(torch::Device device, int vocab_size)
     : device_(device), vocab_size_(vocab_size) {}
 
+void Sampler::ensure_prepare_workspace(int64_t batch_size) const {
+    batch_size = std::max<int64_t>(1, batch_size);
+    if (temperatures_host_.numel() >= batch_size) {
+        return;
+    }
+
+    int64_t next_len = 1;
+    while (next_len < batch_size) {
+        next_len <<= 1;
+    }
+
+    const auto float_host_options =
+        torch::TensorOptions().dtype(torch::kFloat32).device(torch::kCPU).pinned_memory(true);
+    const auto int32_host_options =
+        torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true);
+    const auto float_device_options =
+        torch::TensorOptions().dtype(torch::kFloat32).device(device_);
+    const auto int32_device_options =
+        torch::TensorOptions().dtype(torch::kInt32).device(device_);
+
+    temperatures_host_ = torch::empty({next_len}, float_host_options);
+    top_k_host_ = torch::empty({next_len}, int32_host_options);
+    top_p_host_ = torch::empty({next_len}, float_host_options);
+    for (auto& buffer : temperatures_device_) {
+        buffer = torch::empty({next_len}, float_device_options);
+    }
+    for (auto& buffer : top_k_device_) {
+        buffer = torch::empty({next_len}, int32_device_options);
+    }
+    for (auto& buffer : top_p_device_) {
+        buffer = torch::empty({next_len}, float_device_options);
+    }
+}
+
 BatchSamplingArgs Sampler::prepare(const Batch& batch) const {
-    std::vector<float> temperatures;
-    std::vector<int32_t> top_ks;
-    std::vector<float> top_ps;
-    temperatures.reserve(batch.reqs.size());
-    top_ks.reserve(batch.reqs.size());
-    top_ps.reserve(batch.reqs.size());
+    const int64_t batch_size = static_cast<int64_t>(batch.reqs.size());
+    ensure_prepare_workspace(batch_size);
+    auto temperatures_host = temperatures_host_.slice(0, 0, batch_size);
+    auto top_k_host = top_k_host_.slice(0, 0, batch_size);
+    auto top_p_host = top_p_host_.slice(0, 0, batch_size);
+    const int slot = prepare_slot_;
+    prepare_slot_ = (prepare_slot_ + 1) % static_cast<int>(temperatures_device_.size());
+    auto temperatures_device = temperatures_device_[slot].slice(0, 0, batch_size);
+    auto top_k_device = top_k_device_[slot].slice(0, 0, batch_size);
+    auto top_p_device = top_p_device_[slot].slice(0, 0, batch_size);
+    auto* temperatures_ptr = temperatures_host.data_ptr<float>();
+    auto* top_k_ptr = top_k_host.data_ptr<int32_t>();
+    auto* top_p_ptr = top_p_host.data_ptr<float>();
 
     bool all_greedy = true;
     bool any_top_k = false;
     bool any_top_p = false;
-    for (const auto& req : batch.reqs) {
+    for (int64_t i = 0; i < batch_size; ++i) {
+        const auto& req = batch.reqs[static_cast<size_t>(i)];
         const auto& params = req->sampling_params;
         all_greedy = all_greedy && params.is_greedy();
-        temperatures.push_back(std::max(params.is_greedy() ? 0.0F : params.temperature, 1e-6F));
+        temperatures_ptr[i] = std::max(params.is_greedy() ? 0.0F : params.temperature, 1e-6F);
         int32_t top_k = params.top_k >= 1 ? params.top_k : vocab_size_;
         float top_p = std::min(std::max(params.top_p, 1e-6F), 1.0F);
         any_top_k = any_top_k || top_k != vocab_size_;
         any_top_p = any_top_p || top_p < 1.0F;
-        top_ks.push_back(top_k);
-        top_ps.push_back(top_p);
+        top_k_ptr[i] = top_k;
+        top_p_ptr[i] = top_p;
     }
 
     BatchSamplingArgs args;
@@ -217,12 +251,15 @@ BatchSamplingArgs Sampler::prepare(const Batch& batch) const {
         return args;
     }
 
-    args.temperatures = make_tensor(temperatures, device_);
+    temperatures_device.copy_(temperatures_host, /*non_blocking=*/true);
+    args.temperatures = temperatures_device;
     if (any_top_k) {
-        args.top_k = make_tensor(top_ks, device_);
+        top_k_device.copy_(top_k_host, /*non_blocking=*/true);
+        args.top_k = top_k_device;
     }
     if (any_top_p) {
-        args.top_p = make_tensor(top_ps, device_);
+        top_p_device.copy_(top_p_host, /*non_blocking=*/true);
+        args.top_p = top_p_device;
     }
     return args;
 }
@@ -533,8 +570,11 @@ std::vector<int> GraphRunner::determine_batch_sizes(bool enable_cuda_graph,
 
     if (batch_sizes.empty()) {
         batch_sizes = {1, 2, 4};
-        for (int bs = 8; bs <= max_batch_size; bs += 8) {
+        for (int bs = 8; bs <= max_batch_size; bs *= 2) {
             batch_sizes.push_back(bs);
+        }
+        if (batch_sizes.back() != max_batch_size) {
+            batch_sizes.push_back(max_batch_size);
         }
     }
 
