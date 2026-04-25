@@ -1,4 +1,0 @@
-[29283] bench_offline@127.0.0.1
-  void BatchDecodeWithPagedKVCacheKernel<0, 2, 1, 8, 16, 2, 4, ComposedAttention<BatchDecodeParams<__nv_bfloat16, __nv_bfloat16, __nv_bfloat16, int>, 2>>(ParamsT) (1, 8, 1)x(16, 2, 4), Context 1, Stream 13, Device 0, CC 8.9
-  void BatchDecodeWithPagedKVCacheKernel<0, 2, 1, 8, 16, 2, 4, ComposedAttention<BatchDecodeParams<__nv_bfloat16, __nv_bfloat16, __nv_bfloat16, int>, 2>>(ParamsT) (1, 8, 1)x(16, 2, 4), Context 1, Stream 13, Device 0, CC 8.9
-  void BatchDecodeWithPagedKVCacheKernel<0, 2, 1, 8, 16, 2, 4, ComposedAttention<BatchDecodeParams<__nv_bfloat16, __nv_bfloat16, __nv_bfloat16, int>, 2>>(ParamsT) (1, 8, 1)x(16, 2, 4), Context 1, Stream 13, Device 0, CC 8.9

@@ -1,6 +1,0 @@
-perf_event_open(..., PERF_FLAG_FD_CLOEXEC) failed with unexpected error 1 (Operation not permitted)
-perf_event_open(..., 0) failed unexpectedly with error 1 (Operation not permitted)
-Error:
-No permission to enable cycles:u event.
-
-

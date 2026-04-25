@@ -1,2 +1,0 @@
-scale,avg_e2e_s_mini-sglang,avg_e2e_s_sglang.cpp,p90_e2e_s_mini-sglang,p90_e2e_s_sglang.cpp,req_per_s_mini-sglang,req_per_s_sglang.cpp,tok_per_s_mini-sglang,tok_per_s_sglang.cpp,req_ratio_sglang_over_mini,tok_ratio_sglang_over_mini,avg_e2e_ratio_sglang_over_mini,p90_e2e_ratio_sglang_over_mini
-1.0,1.6754314634017646,1.8551271873584483,2.7115426920354366,3.0039951037615538,26.72967776786189,25.98364552471828,3806.6820002371437,3700.436517735074,0.9720897404891056,0.9720897404891056,1.1072534018143796,1.1078546218671503

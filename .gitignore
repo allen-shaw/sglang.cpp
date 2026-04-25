@@ -59,3 +59,9 @@ __pycache__/
 benchmarks/results/
 
 third_party/
+
+# Profile artifacts
+docs/profile/**
+!docs/profile/
+!docs/profile/**/
+!docs/profile/**/*.md
