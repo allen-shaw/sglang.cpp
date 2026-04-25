@@ -1,0 +1,138 @@
+Loading weights from: /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors
+Total merged weight tensors: 227
+Loaded 227 parameters, skipped 0
+[sglang.cpp graph] capture batch sizes: 1 2 4 8 16 32 64, capture_max_seq_len=1024, model_max_seq_len=4096
+[sglang.cpp graph] capturing bs=64
+[sglang.cpp graph] captured bs=64
+[sglang.cpp graph] capturing bs=32
+[sglang.cpp graph] captured bs=32
+[sglang.cpp graph] capturing bs=16
+[sglang.cpp graph] captured bs=16
+[sglang.cpp graph] capturing bs=8
+[sglang.cpp graph] captured bs=8
+[sglang.cpp graph] capturing bs=4
+[sglang.cpp graph] captured bs=4
+[sglang.cpp graph] capturing bs=2
+[sglang.cpp graph] captured bs=2
+[sglang.cpp graph] capturing bs=1
+[sglang.cpp graph] captured bs=1
+[sglang.cpp graph] finished capture
+begin to listen 1919
+listen port 1919 successfully
+new connection comming, id: 1
+read http header error: Bad file descriptor
+new connection comming, id: 2
+new connection comming, id: 3
+new connection comming, id: 4
+new connection comming, id: 5
+new connection comming, id: 6
+new connection comming, id: 7
+new connection comming, id: 8
+new connection comming, id: 9
+new connection comming, id: 10
+new connection comming, id: 11
+new connection comming, id: 12
+new connection comming, id: 13
+new connection comming, id: 14
+new connection comming, id: 15
+new connection comming, id: 16
+[sglang.cpp profile] prepare steps=64 avg_pad_alloc_us=38.5625 avg_workspace_us=10.0938 avg_h2d_us=21.4375 avg_gather_us=12.3281 avg_attn_us=29.9531 avg_sampling_args_us=8.35938
+[sglang.cpp profile] engine calls=64 decode_calls=53 avg_model_us=2520.16 avg_select_us=0 avg_req_state_us=0.21875 avg_sample_us=86.9219 avg_copy_event_us=10.3281 avg_batch_size=8.07812
+[sglang.cpp profile] scheduler steps=64 decode_steps=53 avg_total_us=6052.56 avg_schedule_us=434.766 avg_prepare_us=126.625 avg_forward_us=2639.17 avg_engine_us=2622.91 avg_writeback_us=4.15625 avg_process_us=2801.55 avg_process_sync_us=2769.75 avg_process_host_us=30.7969 avg_batch_size=8.07812 avg_padded_size=10.1094
+new connection comming, id: 17
+new connection comming, id: 18
+new connection comming, id: 19
+new connection comming, id: 20
+new connection comming, id: 21
+new connection comming, id: 22
+new connection comming, id: 23
+new connection comming, id: 24
+new connection comming, id: 25
+new connection comming, id: 26
+new connection comming, id: 27
+new connection comming, id: 28
+new connection comming, id: 29
+new connection comming, id: 30
+new connection comming, id: 31
+new connection comming, id: 32
+new connection comming, id: 33
+[sglang.cpp profile] prepare steps=128 avg_pad_alloc_us=37.2578 avg_workspace_us=9.5625 avg_h2d_us=21.7812 avg_gather_us=12.0234 avg_attn_us=31.7656 avg_sampling_args_us=7.77344
+[sglang.cpp profile] engine calls=128 decode_calls=97 avg_model_us=3625.71 avg_select_us=0.226562 avg_req_state_us=0.703125 avg_sample_us=53.8438 avg_copy_event_us=11.1719 avg_batch_size=11.8672
+[sglang.cpp profile] scheduler steps=128 decode_steps=97 avg_total_us=6658.82 avg_schedule_us=672.75 avg_prepare_us=126.094 avg_forward_us=3717.35 avg_engine_us=3697.51 avg_writeback_us=4.42969 avg_process_us=1997.52 avg_process_sync_us=1954 avg_process_host_us=42.4453 avg_batch_size=11.8672 avg_padded_size=13.8984
+new connection comming, id: 34
+new connection comming, id: 35
+new connection comming, id: 36
+new connection comming, id: 37
+new connection comming, id: 38
+new connection comming, id: 39
+new connection comming, id: 40
+new connection comming, id: 41
+new connection comming, id: 42
+new connection comming, id: 43
+new connection comming, id: 44
+new connection comming, id: 45
+[sglang.cpp profile] prepare steps=192 avg_pad_alloc_us=37.599 avg_workspace_us=9.5625 avg_h2d_us=22.151 avg_gather_us=12.1562 avg_attn_us=32.2656 avg_sampling_args_us=7.69271
+[sglang.cpp profile] engine calls=192 decode_calls=145 avg_model_us=4363.59 avg_select_us=0.401042 avg_req_state_us=1.21875 avg_sample_us=42.8802 avg_copy_event_us=11.6302 avg_batch_size=16.901
+[sglang.cpp profile] scheduler steps=192 decode_steps=145 avg_total_us=7470.7 avg_schedule_us=763.625 avg_prepare_us=127.422 avg_forward_us=4448.99 avg_engine_us=4425.92 avg_writeback_us=4.59375 avg_process_us=1796.9 avg_process_sync_us=1739.24 avg_process_host_us=56.6042 avg_batch_size=16.901 avg_padded_size=18.2552
+new connection comming, id: 46
+new connection comming, id: 47
+new connection comming, id: 48
+new connection comming, id: 49
+new connection comming, id: 50
+new connection comming, id: 51
+new connection comming, id: 52
+new connection comming, id: 53
+new connection comming, id: 54
+new connection comming, id: 55
+new connection comming, id: 56
+new connection comming, id: 57
+new connection comming, id: 58
+new connection comming, id: 59
+new connection comming, id: 60
+new connection comming, id: 61
+new connection comming, id: 62
+new connection comming, id: 63
+new connection comming, id: 64
+new connection comming, id: 65
+new connection comming, id: 66
+new connection comming, id: 67
+new connection comming, id: 68
+new connection comming, id: 69
+new connection comming, id: 70
+new connection comming, id: 71
+new connection comming, id: 72
+new connection comming, id: 73
+new connection comming, id: 74
+new connection comming, id: 75
+new connection comming, id: 76
+new connection comming, id: 77
+new connection comming, id: 78
+new connection comming, id: 79
+[sglang.cpp profile] prepare steps=256 avg_pad_alloc_us=127.598 avg_workspace_us=10.2539 avg_h2d_us=23.1094 avg_gather_us=12.4297 avg_attn_us=34.9297 avg_sampling_args_us=8.27734
+[sglang.cpp profile] engine calls=256 decode_calls=181 avg_model_us=5115.47 avg_select_us=0.515625 avg_req_state_us=1.80469 avg_sample_us=38.3008 avg_copy_event_us=13.4023 avg_batch_size=20.9609
+[sglang.cpp profile] scheduler steps=256 decode_steps=181 avg_total_us=8446.93 avg_schedule_us=887.062 avg_prepare_us=222.691 avg_forward_us=5203.28 avg_engine_us=5176.07 avg_writeback_us=4.75781 avg_process_us=1629.3 avg_process_sync_us=1558.92 avg_process_host_us=69.2852 avg_batch_size=20.9609 avg_padded_size=21.9766
+new connection comming, id: 80
+new connection comming, id: 81
+new connection comming, id: 82
+new connection comming, id: 83
+new connection comming, id: 84
+new connection comming, id: 85
+new connection comming, id: 86
+new connection comming, id: 87
+new connection comming, id: 88
+new connection comming, id: 89
+[sglang.cpp profile] prepare steps=320 avg_pad_alloc_us=197.222 avg_workspace_us=10.3531 avg_h2d_us=24.1187 avg_gather_us=12.9219 avg_attn_us=35.625 avg_sampling_args_us=8.36875
+[sglang.cpp profile] engine calls=320 decode_calls=231 avg_model_us=5345.74 avg_select_us=0.584375 avg_req_state_us=2.58438 avg_sample_us=35.6156 avg_copy_event_us=14.1781 avg_batch_size=28.2125
+[sglang.cpp profile] scheduler steps=320 decode_steps=231 avg_total_us=9243.58 avg_schedule_us=720.706 avg_prepare_us=294.753 avg_forward_us=5436.64 avg_engine_us=5405.6 avg_writeback_us=5.09687 avg_process_us=1766.88 avg_process_sync_us=1676.31 avg_process_host_us=89.475 avg_batch_size=28.2125 avg_padded_size=29.025
+[sglang.cpp profile] prepare steps=384 avg_pad_alloc_us=267.089 avg_workspace_us=10.2396 avg_h2d_us=24.9974 avg_gather_us=13.2578 avg_attn_us=35.4844 avg_sampling_args_us=8.35417
+[sglang.cpp profile] engine calls=384 decode_calls=289 avg_model_us=5319.8 avg_select_us=0.638021 avg_req_state_us=3.09896 avg_sample_us=33.7266 avg_copy_event_us=14.0312 avg_batch_size=34.0833
+[sglang.cpp profile] scheduler steps=384 decode_steps=289 avg_total_us=9644.89 avg_schedule_us=605.526 avg_prepare_us=365.555 avg_forward_us=5411.21 avg_engine_us=5378.27 avg_writeback_us=5.20052 avg_process_us=2030.84 avg_process_sync_us=1925.32 avg_process_host_us=104.443 avg_batch_size=34.0833 avg_padded_size=34.7604
+[sglang.cpp profile] prepare steps=448 avg_pad_alloc_us=338.728 avg_workspace_us=9.96652 avg_h2d_us=25.6183 avg_gather_us=13.4085 avg_attn_us=34.7321 avg_sampling_args_us=8.24107
+[sglang.cpp profile] engine calls=448 decode_calls=353 avg_model_us=5179.11 avg_select_us=0.700893 avg_req_state_us=3.29018 avg_sample_us=32.2991 avg_copy_event_us=13.9509 avg_batch_size=36.3839
+[sglang.cpp profile] scheduler steps=448 decode_steps=353 avg_total_us=9640.12 avg_schedule_us=519.681 avg_prepare_us=436.819 avg_forward_us=5269.86 avg_engine_us=5236.43 avg_writeback_us=5.28348 avg_process_us=2037 avg_process_sync_us=1926.04 avg_process_host_us=109.9 avg_batch_size=36.3839 avg_padded_size=36.9643
+[sglang.cpp profile] prepare steps=512 avg_pad_alloc_us=323.85 avg_workspace_us=9.63086 avg_h2d_us=25.9941 avg_gather_us=13.4707 avg_attn_us=33.8828 avg_sampling_args_us=8.08984
+[sglang.cpp profile] engine calls=512 decode_calls=417 avg_model_us=5078.3 avg_select_us=0.740234 avg_req_state_us=3.14453 avg_sample_us=31.1309 avg_copy_event_us=13.8613 avg_batch_size=35.123
+[sglang.cpp profile] scheduler steps=512 decode_steps=417 avg_total_us=9313 avg_schedule_us=455.219 avg_prepare_us=421.023 avg_forward_us=5166.84 avg_engine_us=5134.27 avg_writeback_us=5.32031 avg_process_us=1863.43 avg_process_sync_us=1755.93 avg_process_host_us=106.463 avg_batch_size=35.123 avg_padded_size=35.6309
+[sglang.cpp profile] prepare steps=576 avg_pad_alloc_us=291.443 avg_workspace_us=9.24826 avg_h2d_us=26.1146 avg_gather_us=13.4705 avg_attn_us=32.8681 avg_sampling_args_us=7.88715
+[sglang.cpp profile] engine calls=576 decode_calls=481 avg_model_us=4976.08 avg_select_us=0.772569 avg_req_state_us=2.80382 avg_sample_us=29.9965 avg_copy_event_us=13.6667 avg_batch_size=31.6319
+[sglang.cpp profile] scheduler steps=576 decode_steps=481 avg_total_us=8768.82 avg_schedule_us=404.917 avg_prepare_us=387.118 avg_forward_us=5061.16 avg_engine_us=5030.33 avg_writeback_us=5.32292 avg_process_us=1658.63 avg_process_sync_us=1560.87 avg_process_host_us=96.717 avg_batch_size=31.6319 avg_padded_size=32.0833

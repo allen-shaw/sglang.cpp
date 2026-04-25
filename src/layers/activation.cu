@@ -5,7 +5,7 @@
 namespace sglang {
 
 __device__ __forceinline__ float d_silu(const float& x) {
-    return x / (1.0f + expf(-x));
+    return x / (1.0f + __expf(-x));
 }
 
 __device__ __forceinline__ float d_gelu(const float& x) {
@@ -20,11 +20,12 @@ void silu_and_mul(torch::Tensor& out, const torch::Tensor& input) {
     int64_t d = input.size(1) / 2;
 
     int num_blocks = num_tokens;
-    int num_threads = std::min(1024L, d);
     
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     if (input.scalar_type() == torch::kFloat16) {
+        constexpr int64_t vec_size = 16 / sizeof(half);
+        int num_threads = static_cast<int>(std::min<int64_t>(1024, d / vec_size));
         auto kernel = flashinfer::activation::act_and_mul_kernel<half, d_silu>;
         kernel<<<num_blocks, num_threads, 0, stream>>>(
             reinterpret_cast<half*>(out.data_ptr<at::Half>()), 
@@ -32,6 +33,8 @@ void silu_and_mul(torch::Tensor& out, const torch::Tensor& input) {
             d
         );
     } else {
+        constexpr int64_t vec_size = 16 / sizeof(nv_bfloat16);
+        int num_threads = static_cast<int>(std::min<int64_t>(1024, d / vec_size));
         auto kernel = flashinfer::activation::act_and_mul_kernel<nv_bfloat16, d_silu>;
         kernel<<<num_blocks, num_threads, 0, stream>>>(
             reinterpret_cast<nv_bfloat16*>(out.data_ptr<at::BFloat16>()), 
@@ -47,11 +50,12 @@ void gelu_and_mul(torch::Tensor& out, const torch::Tensor& input) {
     int64_t d = input.size(1) / 2;
 
     int num_blocks = num_tokens;
-    int num_threads = std::min(1024L, d);
     
     cudaStream_t stream = at::cuda::getCurrentCUDAStream();
 
     if (input.scalar_type() == torch::kFloat16) {
+        constexpr int64_t vec_size = 16 / sizeof(half);
+        int num_threads = static_cast<int>(std::min<int64_t>(1024, d / vec_size));
         auto kernel = flashinfer::activation::act_and_mul_kernel<half, d_gelu>;
         kernel<<<num_blocks, num_threads, 0, stream>>>(
             reinterpret_cast<half*>(out.data_ptr<at::Half>()), 
@@ -59,6 +63,8 @@ void gelu_and_mul(torch::Tensor& out, const torch::Tensor& input) {
             d
         );
     } else {
+        constexpr int64_t vec_size = 16 / sizeof(nv_bfloat16);
+        int num_threads = static_cast<int>(std::min<int64_t>(1024, d / vec_size));
         auto kernel = flashinfer::activation::act_and_mul_kernel<nv_bfloat16, d_gelu>;
         kernel<<<num_blocks, num_threads, 0, stream>>>(
             reinterpret_cast<nv_bfloat16*>(out.data_ptr<at::BFloat16>()), 

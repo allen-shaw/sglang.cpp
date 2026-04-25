@@ -9,8 +9,10 @@
 
 #include <torch/torch.h>
 
+#include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#include "sglang/attention/flashinfer_backend.h"
 #include "sglang/kernels/token_pool.h"
 #include "sglang/utils/logger.h"
 
@@ -127,6 +129,36 @@ struct PrepareProfileStats {
     }
 };
 
+void record_tensor_stream(const torch::Tensor& tensor, const c10::cuda::CUDAStream& stream) {
+    if (!tensor.defined() || !tensor.is_cuda()) {
+        return;
+    }
+    c10::cuda::CUDACachingAllocator::recordStream(tensor.storage().data_ptr(), stream);
+}
+
+void record_forward_input_stream(const ForwardInput& input, const c10::cuda::CUDAStream& stream) {
+    record_tensor_stream(input.batch->input_ids, stream);
+    record_tensor_stream(input.batch->positions, stream);
+    record_tensor_stream(input.batch->out_loc, stream);
+    record_tensor_stream(input.sample_args.temperatures, stream);
+    record_tensor_stream(input.sample_args.top_k, stream);
+    record_tensor_stream(input.sample_args.top_p, stream);
+    record_tensor_stream(input.input_tuple.first, stream);
+    record_tensor_stream(input.input_tuple.second, stream);
+    record_tensor_stream(input.write_tuple.first, stream);
+    record_tensor_stream(input.write_tuple.second, stream);
+
+    auto metadata =
+        std::dynamic_pointer_cast<FlashInferAttnMetadata>(input.batch->attn_metadata);
+    if (!metadata) {
+        return;
+    }
+    record_tensor_stream(metadata->indptr, stream);
+    record_tensor_stream(metadata->indices, stream);
+    record_tensor_stream(metadata->paged_kv_indptr, stream);
+    record_tensor_stream(metadata->paged_kv_last_page_len, stream);
+}
+
 }  // namespace
 
 Scheduler::Scheduler(const SchedulerConfig& config)
@@ -194,12 +226,8 @@ void Scheduler::ensure_prepare_workspace(int64_t token_count, int64_t req_count)
     req_count = std::max<int64_t>(1, req_count);
     const auto int32_host_options =
         torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true);
-    const auto int64_host_options =
-        torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU).pinned_memory(true);
     const auto int32_device_options =
         torch::TensorOptions().dtype(torch::kInt32).device(engine_.device());
-    const auto int64_device_options =
-        torch::TensorOptions().dtype(torch::kInt64).device(engine_.device());
 
     if (prepare_positions_i32_host_.numel() < token_count) {
         int64_t next_len = 1;
@@ -208,10 +236,8 @@ void Scheduler::ensure_prepare_workspace(int64_t token_count, int64_t req_count)
         }
         prepare_positions_i32_host_ = torch::empty({next_len}, int32_host_options);
         prepare_positions_i32_device_ = torch::empty({next_len}, int32_device_options);
-        prepare_positions_i64_host_ = torch::empty({next_len}, int64_host_options);
-        prepare_positions_i64_device_ = torch::empty({next_len}, int64_device_options);
-        prepare_mapping_host_ = torch::empty({next_len}, int64_host_options);
-        prepare_mapping_device_ = torch::empty({next_len}, int64_device_options);
+        prepare_mapping_host_ = torch::empty({next_len}, int32_host_options);
+        prepare_mapping_device_ = torch::empty({next_len}, int32_device_options);
     }
 
     if (prepare_write_mapping_host_.numel() < req_count) {
@@ -219,10 +245,10 @@ void Scheduler::ensure_prepare_workspace(int64_t token_count, int64_t req_count)
         while (next_len < req_count) {
             next_len <<= 1;
         }
-        prepare_write_mapping_host_ = torch::empty({next_len}, int64_host_options);
-        prepare_write_mapping_device_ = torch::empty({next_len}, int64_device_options);
-        prepare_write_positions_host_ = torch::empty({next_len}, int64_host_options);
-        prepare_write_positions_device_ = torch::empty({next_len}, int64_device_options);
+        prepare_write_mapping_host_ = torch::empty({next_len}, int32_host_options);
+        prepare_write_mapping_device_ = torch::empty({next_len}, int32_device_options);
+        prepare_write_positions_host_ = torch::empty({next_len}, int32_host_options);
+        prepare_write_positions_device_ = torch::empty({next_len}, int32_device_options);
     }
 }
 
@@ -243,19 +269,15 @@ ForwardInput Scheduler::prepare_batch(const std::shared_ptr<Batch>& batch) {
 
     auto positions_i32_host = prepare_positions_i32_host_.slice(0, 0, token_count);
     auto positions_i32_device = prepare_positions_i32_device_.slice(0, 0, token_count);
-    auto positions_i64_host = prepare_positions_i64_host_.slice(0, 0, token_count);
-    auto positions_i64_device = prepare_positions_i64_device_.slice(0, 0, token_count);
     auto mapping_host = prepare_mapping_host_.slice(0, 0, token_count);
     auto mapping_device = prepare_mapping_device_.slice(0, 0, token_count);
 
     auto* positions_i32_ptr = positions_i32_host.data_ptr<int32_t>();
-    auto* positions_i64_ptr = positions_i64_host.data_ptr<int64_t>();
-    auto* mapping_ptr = mapping_host.data_ptr<int64_t>();
+    auto* mapping_ptr = mapping_host.data_ptr<int32_t>();
     int64_t offset = 0;
     for (const auto& req : batch->padded_reqs) {
         for (int pos = req->cached_len; pos < req->device_len(); ++pos) {
             positions_i32_ptr[offset] = pos;
-            positions_i64_ptr[offset] = pos;
             mapping_ptr[offset] = req->table_idx;
             ++offset;
         }
@@ -265,18 +287,17 @@ ForwardInput Scheduler::prepare_batch(const std::shared_ptr<Batch>& batch) {
 
     const auto h2d_start = std::chrono::steady_clock::now();
     positions_i32_device.copy_(positions_i32_host, /*non_blocking=*/true);
-    positions_i64_device.copy_(positions_i64_host, /*non_blocking=*/true);
     mapping_device.copy_(mapping_host, /*non_blocking=*/true);
     batch->positions = positions_i32_device;
-    auto input_tuple = std::make_pair(mapping_device, positions_i64_device);
+    auto input_tuple = std::make_pair(mapping_device, positions_i32_device);
 
     const int64_t req_count = static_cast<int64_t>(batch->reqs.size());
     auto write_mapping_host = prepare_write_mapping_host_.slice(0, 0, req_count);
     auto write_mapping_device = prepare_write_mapping_device_.slice(0, 0, req_count);
     auto write_positions_host = prepare_write_positions_host_.slice(0, 0, req_count);
     auto write_positions_device = prepare_write_positions_device_.slice(0, 0, req_count);
-    auto* write_mapping_ptr = write_mapping_host.data_ptr<int64_t>();
-    auto* write_positions_ptr = write_positions_host.data_ptr<int64_t>();
+    auto* write_mapping_ptr = write_mapping_host.data_ptr<int32_t>();
+    auto* write_positions_ptr = write_positions_host.data_ptr<int32_t>();
     for (int64_t i = 0; i < req_count; ++i) {
         const auto& req = batch->reqs[static_cast<size_t>(i)];
         write_mapping_ptr[i] = req->table_idx;
@@ -334,6 +355,7 @@ ForwardOutput Scheduler::forward(ForwardInput& forward_input, ForwardProfile* pr
     prepare_done_event->record(scheduler_stream_);
     prepare_done_event->block(engine_.stream());
     last_prepare_done_event_ = prepare_done_event;
+    record_forward_input_stream(forward_input, engine_.stream());
 
     const auto engine_start = std::chrono::steady_clock::now();
     auto output = engine_.forward_batch(*forward_input.batch, forward_input.sample_args);

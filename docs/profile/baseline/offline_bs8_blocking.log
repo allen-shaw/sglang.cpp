@@ -1,0 +1,18 @@
+2026-04-24T23:26:26+08:00
+Running build/bench_offline
+Run on (208 X 3800 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x104)
+  L1 Instruction 32 KiB (x104)
+  L2 Unified 2048 KiB (x104)
+  L3 Unified 107520 KiB (x2)
+Load Average: 13.05, 14.97, 15.35
+***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.
+***WARNING*** Library was built as DEBUG. Timings may be affected.
+Loading weights from: /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors
+Total merged weight tensors: 227
+Loaded 227 parameters, skipped 0
+-------------------------------------------------------------------------------------------------------------------
+Benchmark                                                         Time             CPU   Iterations UserCounters...
+-------------------------------------------------------------------------------------------------------------------
+offline_generate/bs_8/in_128/out_128/8/128/128/real_time       1164 ms        0.686 ms            1 batch_size=8 gen_tok/s=880.09/s input_len=128 output_len=128 prompt_tok/s=880.09/s req/s=6.8757/s

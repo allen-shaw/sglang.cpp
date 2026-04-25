@@ -1,0 +1,25 @@
+2026-04-24T23:28:17+08:00
+Running build/bench_offline
+Run on (208 X 3800 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x104)
+  L1 Instruction 32 KiB (x104)
+  L2 Unified 2048 KiB (x104)
+  L3 Unified 107520 KiB (x2)
+Load Average: 12.66, 14.19, 15.02
+***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.
+***WARNING*** Library was built as DEBUG. Timings may be affected.
+Loading weights from: /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors
+Total merged weight tensors: 227
+Loaded 227 parameters, skipped 0
+---------------------------------------------------------------------------------------------------------------------
+Benchmark                                                           Time             CPU   Iterations UserCounters...
+---------------------------------------------------------------------------------------------------------------------
+offline_generate/bs_1/in_128/out_128/1/128/128/real_time         1018 ms         1.42 ms            1 batch_size=1 gen_tok/s=125.778/s input_len=128 output_len=128 prompt_tok/s=125.778/s req/s=0.982637/s
+offline_generate/bs_1/in_128/out_512/1/128/512/real_time         4043 ms         5.21 ms            1 batch_size=1 gen_tok/s=126.637/s input_len=128 output_len=512 prompt_tok/s=31.6594/s req/s=0.247339/s
+offline_generate/bs_1/in_1024/out_128/1/1024/128/real_time       1042 ms         1.41 ms            1 batch_size=1 gen_tok/s=122.868/s input_len=1.024k output_len=128 prompt_tok/s=982.942/s req/s=0.959905/s
+offline_generate/bs_1/in_1024/out_512/1/1024/512/real_time       4111 ms         5.26 ms            1 batch_size=1 gen_tok/s=124.529/s input_len=1.024k output_len=512 prompt_tok/s=249.058/s req/s=0.243221/s
+offline_generate/bs_8/in_128/out_128/8/128/128/real_time         1229 ms         1.71 ms            1 batch_size=8 gen_tok/s=833.502/s input_len=128 output_len=128 prompt_tok/s=833.502/s req/s=6.51173/s
+offline_generate/bs_8/in_128/out_512/8/128/512/real_time         4976 ms         5.61 ms            1 batch_size=8 gen_tok/s=823.161/s input_len=128 output_len=512 prompt_tok/s=205.79/s req/s=1.60774/s
+offline_generate/bs_8/in_1024/out_128/8/1024/128/real_time       1479 ms         1.56 ms            1 batch_size=8 gen_tok/s=692.235/s input_len=1.024k output_len=128 prompt_tok/s=5.53788k/s req/s=5.40809/s
+offline_generate/bs_8/in_1024/out_512/8/1024/512/real_time       5701 ms         4.83 ms            1 batch_size=8 gen_tok/s=718.488/s input_len=1.024k output_len=512 prompt_tok/s=1.43698k/s req/s=1.4033/s

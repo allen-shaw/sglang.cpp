@@ -1,0 +1,50 @@
+heaptrack output will be written to "/root/workspace/sglang.cpp/docs/profile/memory/heaptrack_offline.gz.gz"
+/usr/lib/heaptrack/libheaptrack_preload.so
+starting application, this might take some time...
+2026-04-24T23:42:25+08:00
+Running build/bench_offline
+Run on (208 X 3800 MHz CPU s)
+CPU Caches:
+  L1 Data 48 KiB (x104)
+  L1 Instruction 32 KiB (x104)
+  L2 Unified 2048 KiB (x104)
+  L3 Unified 107520 KiB (x2)
+Load Average: 20.01, 14.83, 14.71
+***WARNING*** CPU scaling is enabled, the benchmark real time measurements may be noisy and will incur extra overhead.
+***WARNING*** Library was built as DEBUG. Timings may be affected.
+Loading weights from: /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors
+Total merged weight tensors: 227
+Loaded 227 parameters, skipped 0
+terminate called after throwing an instance of 'c10::AcceleratorError'
+  what():  CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Exception raised from c10_cuda_check_implementation at /pytorch/c10/cuda/CUDAException.cpp:42 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x80 (0x7fdedac16eb0 in /root/miniconda3/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x111c7 (0x7fdedaca91c7 in /root/miniconda3/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x1ad98a (0x559603e1198a in build/bench_offline)
+frame #3: <unknown function> + 0x1c877f (0x559603e2c77f in build/bench_offline)
+frame #4: <unknown function> + 0x1a9c01 (0x559603e0dc01 in build/bench_offline)
+frame #5: <unknown function> + 0x1ab4f6 (0x559603e0f4f6 in build/bench_offline)
+frame #6: <unknown function> + 0x1ab7cd (0x559603e0f7cd in build/bench_offline)
+frame #7: <unknown function> + 0x14ac9e (0x559603daec9e in build/bench_offline)
+frame #8: <unknown function> + 0x157248 (0x559603dbb248 in build/bench_offline)
+frame #9: <unknown function> + 0x15721d (0x559603dbb21d in build/bench_offline)
+frame #10: <unknown function> + 0x1571ad (0x559603dbb1ad in build/bench_offline)
+frame #11: <unknown function> + 0x157185 (0x559603dbb185 in build/bench_offline)
+frame #12: <unknown function> + 0x157155 (0x559603dbb155 in build/bench_offline)
+frame #13: <unknown function> + 0x157079 (0x559603dbb079 in build/bench_offline)
+frame #14: <unknown function> + 0xdc253 (0x7fdeda6b0253 in /usr/lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #15: <unknown function> + 0x94ac3 (0x7fdeda358ac3 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+frame #16: clone + 0x44 (0x7fdeda3e9a84 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+
+heaptrack stats:
+	allocations:          	4835912
+	leaked allocations:   	1360645
+	temporary allocations:	462436
+Aborted (core dumped)
+Heaptrack finished! Now run the following to investigate the data:
+
+  heaptrack --analyze "/root/workspace/sglang.cpp/docs/profile/memory/heaptrack_offline.gz.gz"

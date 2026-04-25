@@ -1,0 +1,3 @@
+
+[stderr]
+build/bench_offline: error: unrecognized command-line flag: --disable-overlap-scheduling

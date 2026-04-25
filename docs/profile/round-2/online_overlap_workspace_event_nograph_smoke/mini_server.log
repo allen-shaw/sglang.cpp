@@ -1,0 +1,154 @@
+[1m[2026-04-25|00:25:35][0m [32mINFO    [0m Parsed arguments:
+ServerArgs(model_path='/root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca', tp_info=DistributedInfo(rank=0, size=1), dtype=torch.bfloat16, max_running_req=256, attention_backend='auto', moe_backend='auto', cuda_graph_bs=None, cuda_graph_max_bs=None, page_size=1, memory_ratio=0.2, distributed_timeout=60.0, use_dummy_weight=False, use_pynccl=True, max_seq_len_override=4096, num_page_override=None, max_extend_tokens=16384, cache_type='radix', offline_mode=False, _unique_suffix='.pid=12270', server_host='127.0.0.1', server_port=1920, num_tokenizer=0, silent_output=False)
+[1m[2026-04-25|00:25:38|core|rank=0][0m [32mINFO    [0m Auto-selected attention backend: fi
+[1m[2026-04-25|00:25:38|initializer][0m [32mINFO    [0m Tokenize server 0 is ready
+[Gloo] Rank 0 is connected to 0 peer ranks. Expected number of connected peer ranks is : 0
+[1m[2026-04-25|00:25:39|core|rank=0][0m [32mINFO    [0m Free memory before loading model: 31.20 GiB
+Loading weights:   0%|          | 0/1 [00:00<?, ?it/s]Loading weights: 100%|██████████| 1/1 [00:00<00:00,  2.29it/s]Loading weights: 100%|██████████| 1/1 [00:00<00:00,  2.29it/s]
+[1m[2026-04-25|00:25:40|core|rank=0][0m [32mINFO    [0m Allocating 46907 tokens for KV cache, K + V = 5.01 GiB
+[1m[2026-04-25|00:25:40|core|rank=0][0m [32mINFO    [0m Free memory after initialization: 24.84 GiB
+[1m[2026-04-25|00:25:40|core|rank=0][0m [32mINFO    [0m Start capturing CUDA graphs with sizes: [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64, 72, 80, 88, 96, 104, 112, 120, 128, 136, 144, 152, 160]
+[1m[2026-04-25|00:25:40|core|rank=0][0m [32mINFO    [0m Free GPU memory before capturing CUDA graphs: 24.84 GiB
+Preparing for capturing CUDA graphs...:   0%|          | 0/23 [00:00<?, ?batch/s]Capturing graphs: bs = 160 | avail_mem = 24.74 GiB:   0%|          | 0/23 [00:00<?, ?batch/s]Capturing graphs: bs = 160 | avail_mem = 24.74 GiB:   4%|▍         | 1/23 [00:01<00:25,  1.14s/batch]Capturing graphs: bs = 152 | avail_mem = 24.64 GiB:   4%|▍         | 1/23 [00:01<00:25,  1.14s/batch]Capturing graphs: bs = 144 | avail_mem = 24.63 GiB:   4%|▍         | 1/23 [00:01<00:25,  1.14s/batch]Capturing graphs: bs = 144 | avail_mem = 24.63 GiB:  13%|█▎        | 3/23 [00:01<00:07,  2.81batch/s]Capturing graphs: bs = 136 | avail_mem = 24.63 GiB:  13%|█▎        | 3/23 [00:01<00:07,  2.81batch/s]Capturing graphs: bs = 128 | avail_mem = 24.62 GiB:  13%|█▎        | 3/23 [00:01<00:07,  2.81batch/s]Capturing graphs: bs = 128 | avail_mem = 24.62 GiB:  22%|██▏       | 5/23 [00:01<00:03,  4.68batch/s]Capturing graphs: bs = 120 | avail_mem = 24.62 GiB:  22%|██▏       | 5/23 [00:01<00:03,  4.68batch/s]Capturing graphs: bs = 112 | avail_mem = 24.62 GiB:  22%|██▏       | 5/23 [00:01<00:03,  4.68batch/s]Capturing graphs: bs = 112 | avail_mem = 24.62 GiB:  30%|███       | 7/23 [00:01<00:02,  6.32batch/s]Capturing graphs: bs = 104 | avail_mem = 24.61 GiB:  30%|███       | 7/23 [00:01<00:02,  6.32batch/s]Capturing graphs: bs = 96  | avail_mem = 24.61 GiB:  30%|███       | 7/23 [00:01<00:02,  6.32batch/s]Capturing graphs: bs = 96  | avail_mem = 24.61 GiB:  39%|███▉      | 9/23 [00:01<00:01,  7.78batch/s]Capturing graphs: bs = 88  | avail_mem = 24.60 GiB:  39%|███▉      | 9/23 [00:01<00:01,  7.78batch/s]Capturing graphs: bs = 80  | avail_mem = 24.60 GiB:  39%|███▉      | 9/23 [00:01<00:01,  7.78batch/s]Capturing graphs: bs = 80  | avail_mem = 24.60 GiB:  48%|████▊     | 11/23 [00:01<00:01,  9.05batch/s]Capturing graphs: bs = 72  | avail_mem = 24.60 GiB:  48%|████▊     | 11/23 [00:01<00:01,  9.05batch/s]Capturing graphs: bs = 64  | avail_mem = 24.59 GiB:  48%|████▊     | 11/23 [00:02<00:01,  9.05batch/s]Capturing graphs: bs = 64  | avail_mem = 24.59 GiB:  57%|█████▋    | 13/23 [00:02<00:01,  9.96batch/s]Capturing graphs: bs = 56  | avail_mem = 24.59 GiB:  57%|█████▋    | 13/23 [00:02<00:01,  9.96batch/s]Capturing graphs: bs = 48  | avail_mem = 24.58 GiB:  57%|█████▋    | 13/23 [00:02<00:01,  9.96batch/s]Capturing graphs: bs = 48  | avail_mem = 24.58 GiB:  65%|██████▌   | 15/23 [00:02<00:00, 10.72batch/s]Capturing graphs: bs = 40  | avail_mem = 24.58 GiB:  65%|██████▌   | 15/23 [00:02<00:00, 10.72batch/s]Capturing graphs: bs = 32  | avail_mem = 24.58 GiB:  65%|██████▌   | 15/23 [00:02<00:00, 10.72batch/s]Capturing graphs: bs = 32  | avail_mem = 24.58 GiB:  74%|███████▍  | 17/23 [00:02<00:00, 11.27batch/s]Capturing graphs: bs = 24  | avail_mem = 24.57 GiB:  74%|███████▍  | 17/23 [00:02<00:00, 11.27batch/s]Capturing graphs: bs = 16  | avail_mem = 24.57 GiB:  74%|███████▍  | 17/23 [00:02<00:00, 11.27batch/s]Capturing graphs: bs = 16  | avail_mem = 24.57 GiB:  83%|████████▎ | 19/23 [00:02<00:00, 11.62batch/s]Capturing graphs: bs = 8   | avail_mem = 24.56 GiB:  83%|████████▎ | 19/23 [00:02<00:00, 11.62batch/s]Capturing graphs: bs = 4   | avail_mem = 24.56 GiB:  83%|████████▎ | 19/23 [00:02<00:00, 11.62batch/s]Capturing graphs: bs = 4   | avail_mem = 24.56 GiB:  91%|█████████▏| 21/23 [00:02<00:00, 11.89batch/s]Capturing graphs: bs = 2   | avail_mem = 24.56 GiB:  91%|█████████▏| 21/23 [00:02<00:00, 11.89batch/s]Capturing graphs: bs = 1   | avail_mem = 24.55 GiB:  91%|█████████▏| 21/23 [00:02<00:00, 11.89batch/s]Capturing graphs: bs = 1   | avail_mem = 24.55 GiB: 100%|██████████| 23/23 [00:02<00:00, 12.04batch/s]Capturing graphs: bs = 1   | avail_mem = 24.55 GiB: 100%|██████████| 23/23 [00:02<00:00,  7.94batch/s]
+[1m[2026-04-25|00:25:42|core|rank=0][0m [32mINFO    [0m Free GPU memory after capturing CUDA graphs: 24.55 GiB
+[1m[2026-04-25|00:25:43|core|rank=0][0m [32mINFO    [0m Scheduler is idle, waiting for new reqs...
+[1m[2026-04-25|00:25:43|initializer][0m [32mINFO    [0m Scheduler is ready
+[1m[2026-04-25|00:25:43|FrontendAPI][0m [32mINFO    [0m API server is ready to serve on 127.0.0.1:1920
+INFO:     Started server process [12270]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:1920 (Press CTRL+C to quit)
+INFO:     127.0.0.1:58740 - "GET /v1/models HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58746 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58754 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58762 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58768 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58770 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58786 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58790 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58794 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58802 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58818 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58832 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58836 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58840 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58846 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58848 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58854 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58864 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58868 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58870 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58882 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58892 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58894 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58904 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58914 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58920 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58922 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58938 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58950 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58954 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58956 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58970 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58974 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58986 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58992 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58994 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59004 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59010 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59020 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59026 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59034 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59046 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59048 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59054 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58846 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59066 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59074 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58986 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59076 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59090 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59094 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59100 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59102 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59104 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59114 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59124 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59140 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59148 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59160 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59174 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59182 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59198 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59210 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59212 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59226 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58560 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58566 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58572 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58576 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58580 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58588 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58598 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58602 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58616 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58840 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58622 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58638 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58650 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58660 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58818 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58672 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58674 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58682 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58684 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58688 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58698 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58700 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58706 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58710 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58718 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58728 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58736 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58744 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58760 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58764 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58772 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58774 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58780 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58790 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58792 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58796 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58798 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58806 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58816 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58818 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58834 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58846 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58950 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58768 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59074 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58858 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58872 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58886 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58896 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59100 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58744 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58910 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58916 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58918 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58928 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58728 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58938 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58952 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58966 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58978 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58974 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58992 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59008 - "POST /generate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59010 - "POST /generate HTTP/1.1" 200 OK
+[1m[2026-04-25|00:25:48|core|rank=0][0m [32mINFO    [0m Scheduler is idle, waiting for new reqs...
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [12270]

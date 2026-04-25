@@ -1,0 +1,7 @@
+Generating SQLite file docs/profile/nsys/sglang_no_overlap.sqlite from docs/profile/nsys/sglang_no_overlap.nsys-rep
+Processing [docs/profile/nsys/sglang_no_overlap.sqlite] with [/opt/nvidia/nsight-compute/2025.1.1/host/target-linux-x64/reports/cuda_api_sum.py] to [docs/profile/nsys/sglang_no_overlap_stats_cuda_api_sum.csv]... PROCESSED
+
+Processing [docs/profile/nsys/sglang_no_overlap.sqlite] with [/opt/nvidia/nsight-compute/2025.1.1/host/target-linux-x64/reports/cuda_gpu_kern_sum.py] to [docs/profile/nsys/sglang_no_overlap_stats_cuda_gpu_kern_sum.csv]... PROCESSED
+
+Processing [docs/profile/nsys/sglang_no_overlap.sqlite] with [/opt/nvidia/nsight-compute/2025.1.1/host/target-linux-x64/reports/osrt_sum.py] to [docs/profile/nsys/sglang_no_overlap_stats_osrt_sum.csv]... PROCESSED
+

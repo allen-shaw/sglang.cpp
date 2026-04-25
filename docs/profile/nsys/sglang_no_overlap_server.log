@@ -1,0 +1,87 @@
+Loading weights from: /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors
+Total merged weight tensors: 227
+Loaded 227 parameters, skipped 0
+[sglang.cpp graph] capture batch sizes: 1 2 4 8 16 32 64, capture_max_seq_len=1024, model_max_seq_len=4096
+[sglang.cpp graph] capturing bs=64
+[sglang.cpp graph] captured bs=64
+[sglang.cpp graph] capturing bs=32
+[sglang.cpp graph] captured bs=32
+[sglang.cpp graph] capturing bs=16
+[sglang.cpp graph] captured bs=16
+[sglang.cpp graph] capturing bs=8
+[sglang.cpp graph] captured bs=8
+[sglang.cpp graph] capturing bs=4
+[sglang.cpp graph] captured bs=4
+[sglang.cpp graph] capturing bs=2
+[sglang.cpp graph] captured bs=2
+[sglang.cpp graph] capturing bs=1
+[sglang.cpp graph] captured bs=1
+[sglang.cpp graph] finished capture
+begin to listen 1931
+listen port 1931 successfully
+new connection comming, id: 1
+new connection comming, id: 2
+new connection comming, id: 3
+new connection comming, id: 4
+new connection comming, id: 5
+new connection comming, id: 6
+new connection comming, id: 7
+new connection comming, id: 8
+new connection comming, id: 9
+new connection comming, id: 10
+new connection comming, id: 11
+new connection comming, id: 12
+new connection comming, id: 13
+new connection comming, id: 14
+new connection comming, id: 15
+new connection comming, id: 16
+new connection comming, id: 17
+new connection comming, id: 18
+new connection comming, id: 19
+new connection comming, id: 20
+new connection comming, id: 21
+new connection comming, id: 22
+new connection comming, id: 23
+new connection comming, id: 24
+new connection comming, id: 25
+new connection comming, id: 26
+new connection comming, id: 27
+new connection comming, id: 28
+new connection comming, id: 29
+new connection comming, id: 30
+new connection comming, id: 31
+new connection comming, id: 32
+new connection comming, id: 33
+new connection comming, id: 34
+new connection comming, id: 35
+new connection comming, id: 36
+new connection comming, id: 37
+new connection comming, id: 38
+new connection comming, id: 39
+new connection comming, id: 40
+new connection comming, id: 41
+new connection comming, id: 42
+new connection comming, id: 43
+new connection comming, id: 44
+new connection comming, id: 45
+new connection comming, id: 46
+new connection comming, id: 47
+new connection comming, id: 48
+new connection comming, id: 49
+new connection comming, id: 50
+new connection comming, id: 51
+new connection comming, id: 52
+new connection comming, id: 53
+new connection comming, id: 54
+new connection comming, id: 55
+new connection comming, id: 56
+read http header error: Connection reset by peer
+read http header error: Connection reset by peer
+read http header error: Connection reset by peer
+read http header error: Connection reset by peer
+read http header error: Connection reset by peer
+Collecting data...
+Generating '/tmp/nsys-report-939d.qdstrm'
+[1/1] [0%                          ] sglang_no_overlap.nsys-rep[1/1] [0%                          ] sglang_no_overlap.nsys-rep[1/1] [6%                          ] sglang_no_overlap.nsys-rep[1/1] [7%                          ] sglang_no_overlap.nsys-rep[1/1] [8%                          ] sglang_no_overlap.nsys-rep[1/1] [9%                          ] sglang_no_overlap.nsys-rep[1/1] [8%                          ] sglang_no_overlap.nsys-rep[1/1] [5%                          ] sglang_no_overlap.nsys-rep[1/1] [8%                          ] sglang_no_overlap.nsys-rep[1/1] [14%                         ] sglang_no_overlap.nsys-rep[1/1] [==20%                       ] sglang_no_overlap.nsys-rep[1/1] [====26%                     ] sglang_no_overlap.nsys-rep[1/1] [=====32%                    ] sglang_no_overlap.nsys-rep[1/1] [=======37%                  ] sglang_no_overlap.nsys-rep[1/1] [========42%                 ] sglang_no_overlap.nsys-rep[1/1] [==========48%               ] sglang_no_overlap.nsys-rep[1/1] [============54%             ] sglang_no_overlap.nsys-rep[1/1] [=============60%            ] sglang_no_overlap.nsys-rep[1/1] [===============66%          ] sglang_no_overlap.nsys-rep[1/1] [================71%         ] sglang_no_overlap.nsys-rep[1/1] [=================72%        ] sglang_no_overlap.nsys-rep[1/1] [========================100%] sglang_no_overlap.nsys-rep[1/1] [========================100%] sglang_no_overlap.nsys-rep
+Generated:
+    /root/workspace/sglang.cpp/docs/profile/nsys/sglang_no_overlap.nsys-rep

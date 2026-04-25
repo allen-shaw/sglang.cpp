@@ -1,0 +1,19 @@
+Loaded tokenizer from /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca
+Using 64 synthetic traces
+Running trace benchmark at scale=1.0
+{
+  "num_requests": 64.0,
+  "total_output_tokens": 8661.0,
+  "duration_s": 2.746574016287923,
+  "req_per_s": 23.30175688711201,
+  "tok_per_s": 3153.383068738705,
+  "avg_ttft_ms": 70.01482773921452,
+  "p50_ttft_ms": 55.609047412872314,
+  "p90_ttft_ms": 128.47299315035343,
+  "avg_tpot_ms": 10.391576600123004,
+  "p50_tpot_ms": 8.437300100922585,
+  "p90_tpot_ms": 18.829647451639175,
+  "avg_e2e_s": 1.4142626819957513,
+  "p50_e2e_s": 1.5362990722060204,
+  "p90_e2e_s": 2.0501421466469765
+}

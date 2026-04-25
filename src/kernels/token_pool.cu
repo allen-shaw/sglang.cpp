@@ -10,8 +10,8 @@ __global__ void write_token_pool_kernel(int32_t* token_pool,
                                         int64_t rows,
                                         int64_t stride,
                                         int64_t cols,
-                                        const int64_t* req_indices,
-                                        const int64_t* positions,
+                                        const int32_t* req_indices,
+                                        const int32_t* positions,
                                         const int32_t* tokens,
                                         int64_t count) {
   const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -31,8 +31,8 @@ __global__ void gather_int32_2d_kernel(const int32_t* table,
                                        int64_t rows,
                                        int64_t stride,
                                        int64_t cols,
-                                       const int64_t* req_indices,
-                                       const int64_t* positions,
+                                       const int32_t* req_indices,
+                                       const int32_t* positions,
                                        int32_t* output,
                                        int64_t count) {
   const int64_t idx = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x;
@@ -58,8 +58,8 @@ void write_token_pool(const torch::Tensor& token_pool,
   TORCH_CHECK(positions.is_cuda(), "positions must be a CUDA tensor");
   TORCH_CHECK(tokens.is_cuda(), "tokens must be a CUDA tensor");
   TORCH_CHECK(token_pool.scalar_type() == torch::kInt32, "token_pool must be int32");
-  TORCH_CHECK(req_indices.scalar_type() == torch::kInt64, "req_indices must be int64");
-  TORCH_CHECK(positions.scalar_type() == torch::kInt64, "positions must be int64");
+  TORCH_CHECK(req_indices.scalar_type() == torch::kInt32, "req_indices must be int32");
+  TORCH_CHECK(positions.scalar_type() == torch::kInt32, "positions must be int32");
   TORCH_CHECK(tokens.scalar_type() == torch::kInt32, "tokens must be int32");
   TORCH_CHECK(token_pool.dim() == 2, "token_pool must be a 2D tensor");
   TORCH_CHECK(req_indices.dim() == 1, "req_indices must be a 1D tensor");
@@ -83,8 +83,8 @@ void write_token_pool(const torch::Tensor& token_pool,
       token_pool.size(0),
       token_pool.stride(0),
       token_pool.size(1),
-      req_indices.data_ptr<int64_t>(),
-      positions.data_ptr<int64_t>(),
+      req_indices.data_ptr<int32_t>(),
+      positions.data_ptr<int32_t>(),
       tokens.data_ptr<int32_t>(),
       count);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -97,8 +97,8 @@ torch::Tensor gather_int32_2d(const torch::Tensor& table,
   TORCH_CHECK(req_indices.is_cuda(), "req_indices must be a CUDA tensor");
   TORCH_CHECK(positions.is_cuda(), "positions must be a CUDA tensor");
   TORCH_CHECK(table.scalar_type() == torch::kInt32, "table must be int32");
-  TORCH_CHECK(req_indices.scalar_type() == torch::kInt64, "req_indices must be int64");
-  TORCH_CHECK(positions.scalar_type() == torch::kInt64, "positions must be int64");
+  TORCH_CHECK(req_indices.scalar_type() == torch::kInt32, "req_indices must be int32");
+  TORCH_CHECK(positions.scalar_type() == torch::kInt32, "positions must be int32");
   TORCH_CHECK(table.dim() == 2, "table must be a 2D tensor");
   TORCH_CHECK(req_indices.dim() == 1, "req_indices must be a 1D tensor");
   TORCH_CHECK(positions.dim() == 1, "positions must be a 1D tensor");
@@ -121,8 +121,8 @@ torch::Tensor gather_int32_2d(const torch::Tensor& table,
       table.size(0),
       table.stride(0),
       table.size(1),
-      req_indices.data_ptr<int64_t>(),
-      positions.data_ptr<int64_t>(),
+      req_indices.data_ptr<int32_t>(),
+      positions.data_ptr<int32_t>(),
       output.data_ptr<int32_t>(),
       count);
   C10_CUDA_KERNEL_LAUNCH_CHECK();

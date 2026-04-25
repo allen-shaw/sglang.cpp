@@ -92,7 +92,7 @@ set(SGLANG_CORE_SRCS
     src/kernels/token_pool.cu
     src/kvcache/radix_tree.cc
     src/kvcache/cache_manager.cc
-    src/kvcache/mha_kvcache.cc
+    src/kvcache/mha_kvcache.cu
     src/layers/activation.cu
     src/layers/normalization.cu
     src/layers/rotary_embedding.cu
@@ -123,6 +123,11 @@ set(SGLANG_CORE_SRCS
 )
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
+
+target_compile_definitions(sglang_core PUBLIC
+    CINATRA_LOG_DEBUG=cinatra::NULL_LOGGER
+    CINATRA_LOG_TRACE=cinatra::NULL_LOGGER
+)
 
 target_link_libraries(sglang_core PUBLIC
     ${TORCH_LIBRARIES}

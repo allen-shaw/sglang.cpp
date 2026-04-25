@@ -1,0 +1,56 @@
+Loading weights from: /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors
+Total merged weight tensors: 227
+Loaded 227 parameters, skipped 0
+[sglang.cpp graph] capture batch sizes: 1 2 4 8 16 32 64, capture_max_seq_len=1024, model_max_seq_len=4096
+[sglang.cpp graph] capturing bs=64
+[sglang.cpp graph] captured bs=64
+[sglang.cpp graph] capturing bs=32
+[sglang.cpp graph] captured bs=32
+[sglang.cpp graph] capturing bs=16
+[sglang.cpp graph] captured bs=16
+[sglang.cpp graph] capturing bs=8
+[sglang.cpp graph] captured bs=8
+[sglang.cpp graph] capturing bs=4
+[sglang.cpp graph] captured bs=4
+[sglang.cpp graph] capturing bs=2
+[sglang.cpp graph] captured bs=2
+[sglang.cpp graph] capturing bs=1
+[sglang.cpp graph] captured bs=1
+[sglang.cpp graph] finished capture
+begin to listen 1919
+listen port 1919 successfully
+new connection comming, id: 1
+read http header error: Bad file descriptor
+new connection comming, id: 2
+new connection comming, id: 3
+new connection comming, id: 4
+new connection comming, id: 5
+new connection comming, id: 6
+new connection comming, id: 7
+new connection comming, id: 8
+new connection comming, id: 9
+terminate called after throwing an instance of 'c10::AcceleratorError'
+  what():  CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Exception raised from c10_cuda_check_implementation at /pytorch/c10/cuda/CUDAException.cpp:42 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x80 (0x7f2c0a8c7eb0 in /root/miniconda3/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x111c7 (0x7f2c0a95c1c7 in /root/miniconda3/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x2c0a6a (0x56215e009a6a in build/sglang_server)
+frame #3: <unknown function> + 0x304ecf (0x56215e04decf in build/sglang_server)
+frame #4: <unknown function> + 0x2bcbb1 (0x56215e005bb1 in build/sglang_server)
+frame #5: <unknown function> + 0x2be4a6 (0x56215e0074a6 in build/sglang_server)
+frame #6: <unknown function> + 0x2be77d (0x56215e00777d in build/sglang_server)
+frame #7: <unknown function> + 0x14723e (0x56215de9023e in build/sglang_server)
+frame #8: <unknown function> + 0x150578 (0x56215de99578 in build/sglang_server)
+frame #9: <unknown function> + 0x15054d (0x56215de9954d in build/sglang_server)
+frame #10: <unknown function> + 0x1504dd (0x56215de994dd in build/sglang_server)
+frame #11: <unknown function> + 0x1504b5 (0x56215de994b5 in build/sglang_server)
+frame #12: <unknown function> + 0x150485 (0x56215de99485 in build/sglang_server)
+frame #13: <unknown function> + 0x1503a9 (0x56215de993a9 in build/sglang_server)
+frame #14: <unknown function> + 0xdc253 (0x7f2c0a2b0253 in /usr/lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #15: <unknown function> + 0x94ac3 (0x7f2c0a03fac3 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+frame #16: clone + 0x44 (0x7f2c0a0d0a84 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+

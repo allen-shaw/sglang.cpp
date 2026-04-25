@@ -18,19 +18,19 @@ AttentionLayer::AttentionLayer(int layer_id, int num_qo_heads, int num_kv_heads,
 torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Tensor& positions) {
     // qkv is expected to be [total_tokens, qo_attn_dim + 2 * kv_attn_dim]
     auto splits = qkv.split({qo_attn_dim_, kv_attn_dim_, kv_attn_dim_}, -1);
-    auto q = splits[0].contiguous();
-    auto k = splits[1].contiguous();
-    auto v = splits[2].contiguous();
+    auto q = splits[0];
+    auto k = splits[1];
+    auto v = splits[2];
 
     auto q_view = q.view({-1, num_qo_heads_, head_dim_});
     auto k_view = k.view({-1, num_kv_heads_, head_dim_});
 
     // Apply QK norm if present (Qwen3 uses this)
     if (q_norm_) {
-        q_norm_->forward_inplace(q_view);
+        q_norm_->forward_inplace_3d_strided(q_view);
     }
     if (k_norm_) {
-        k_norm_->forward_inplace(k_view);
+        k_norm_->forward_inplace_3d_strided(k_view);
     }
 
     // Apply RoPE using precomputed cos/sin cache

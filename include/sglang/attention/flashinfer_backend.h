@@ -2,7 +2,9 @@
 
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
+#include <ATen/cuda/CUDAEvent.h>
 #include <torch/torch.h>
 
 #include "sglang/attention/backend.h"
@@ -79,7 +81,7 @@ private:
 
     torch::Tensor float_workspace_;
     torch::Tensor int_workspace_;
-    torch::Tensor pinned_int_workspace_;
+    std::vector<torch::Tensor> pinned_int_workspaces_;
     torch::Tensor cached_ones_cpu_;
     torch::Tensor cached_ones_device_;
     torch::Tensor decode_table_indices_host_;
@@ -87,6 +89,13 @@ private:
     torch::Tensor decode_kv_indptr_host_;
     torch::Tensor decode_kv_indptr_device_;
     torch::Tensor decode_indices_device_;
+    size_t acquire_pinned_int_workspace();
+    torch::Tensor& pinned_int_workspace(size_t slot);
+    void wait_workspace_copy_done(size_t slot);
+    void record_workspace_copy_done(size_t slot);
+
+    size_t next_pinned_int_workspace_slot_ = 0;
+    std::vector<std::shared_ptr<at::cuda::CUDAEvent>> workspace_copy_done_events_;
     std::unique_ptr<DecodeCaptureData> decode_capture_;
 };
 

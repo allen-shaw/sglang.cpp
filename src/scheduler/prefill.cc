@@ -128,20 +128,16 @@ void CacheManager::ensure_page_write_workspace(int needed_tokens) {
         next_len <<= 1;
     }
 
-    const auto int64_host_options =
-        torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU).pinned_memory(true);
     const auto int32_host_options =
         torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true);
-    const auto int64_device_options =
-        torch::TensorOptions().dtype(torch::kInt64).device(device_);
     const auto int32_device_options =
         torch::TensorOptions().dtype(torch::kInt32).device(device_);
 
-    page_write_table_idx_host_ = torch::empty({next_len}, int64_host_options);
-    page_write_positions_host_ = torch::empty({next_len}, int64_host_options);
+    page_write_table_idx_host_ = torch::empty({next_len}, int32_host_options);
+    page_write_positions_host_ = torch::empty({next_len}, int32_host_options);
     page_write_tokens_host_ = torch::empty({next_len}, int32_host_options);
-    page_write_table_idx_device_ = torch::empty({next_len}, int64_device_options);
-    page_write_positions_device_ = torch::empty({next_len}, int64_device_options);
+    page_write_table_idx_device_ = torch::empty({next_len}, int32_device_options);
+    page_write_positions_device_ = torch::empty({next_len}, int32_device_options);
     page_write_tokens_device_ = torch::empty({next_len}, int32_device_options);
 }
 
@@ -161,8 +157,8 @@ void CacheManager::write_page_table(
     auto positions_device = page_write_positions_device_.slice(0, 0, needed_tokens);
     auto tokens_device = page_write_tokens_device_.slice(0, 0, needed_tokens);
 
-    auto* table_idx_ptr = table_idx_host.data_ptr<int64_t>();
-    auto* positions_ptr = positions_host.data_ptr<int64_t>();
+    auto* table_idx_ptr = table_idx_host.data_ptr<int32_t>();
+    auto* positions_ptr = positions_host.data_ptr<int32_t>();
     auto* tokens_ptr = tokens_host.data_ptr<int32_t>();
 
     int offset = 0;

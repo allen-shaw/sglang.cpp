@@ -18,18 +18,20 @@ Qwen3DecoderLayer::Qwen3DecoderLayer(const ModelConfig& config, int layer_id) {
     );
 }
 
-torch::Tensor Qwen3DecoderLayer::forward(torch::Tensor x, const torch::Tensor& positions) {
-    auto residual = x;
-    auto x_norm = input_layernorm_->forward(x);
-    auto attn_out = self_attn_->forward(x_norm, positions);
-    x = residual + attn_out;
+std::pair<torch::Tensor, torch::Tensor> Qwen3DecoderLayer::forward(
+    torch::Tensor x, const torch::Tensor& positions, torch::Tensor residual) {
+    if (residual.defined()) {
+        input_layernorm_->fused_add_forward_inplace(x, residual);
+    } else {
+        residual = x;
+        x = input_layernorm_->forward(x);
+    }
 
-    residual = x;
-    x_norm = post_attention_layernorm_->forward(x);
-    auto mlp_out = mlp_->forward(x_norm);
-    x = residual + mlp_out;
+    auto attn_out = self_attn_->forward(x, positions);
+    post_attention_layernorm_->fused_add_forward_inplace(attn_out, residual);
 
-    return x;
+    x = mlp_->forward(attn_out);
+    return {x, residual};
 }
 
 Qwen3Model::Qwen3Model(const ModelConfig& config) {
@@ -52,8 +54,13 @@ Qwen3Model::Qwen3Model(const ModelConfig& config) {
 
 torch::Tensor Qwen3Model::forward(const torch::Tensor& input_ids, const torch::Tensor& positions) {
     auto x = embed_tokens_->forward(input_ids);
+    torch::Tensor residual;
     for (auto& layer : layers_) {
-        x = layer->forward(x, positions);
+        std::tie(x, residual) = layer->forward(x, positions, residual);
+    }
+    if (residual.defined()) {
+        norm_->fused_add_forward_inplace(x, residual);
+        return x;
     }
     return norm_->forward(x);
 }

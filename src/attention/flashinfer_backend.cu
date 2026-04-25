@@ -74,6 +74,10 @@ namespace sglang {
 
 using flashinfer_backend_detail::DecodePlanState;
 using flashinfer_backend_detail::decode_plan_copy_bytes;
+namespace {
+constexpr size_t kPinnedIntWorkspaceRingSize = 32;
+constexpr int64_t kIntWorkspaceBytes = 8 * 1024 * 1024;
+} // namespace
 
 torch::Tensor FlashInferAttnMetadata::get_last_indices(int bs) const {
     return indptr.slice(0, 1, bs + 1) - 1;
@@ -85,8 +89,41 @@ FlashInferBackend::FlashInferBackend(std::shared_ptr<BaseKVCachePool> kv_cache,
       num_kv_heads_(num_kv_heads), head_dim_(head_dim) {
     auto device = kv_cache_->device();
     float_workspace_ = torch::empty({128 * 1024 * 1024}, torch::TensorOptions().dtype(torch::kByte).device(device));
-    int_workspace_ = torch::empty({8 * 1024 * 1024}, torch::TensorOptions().dtype(torch::kByte).device(device));
-    pinned_int_workspace_ = torch::empty({8 * 1024 * 1024}, torch::TensorOptions().dtype(torch::kByte).device(torch::kCPU).pinned_memory(true));
+    int_workspace_ = torch::empty({kIntWorkspaceBytes}, torch::TensorOptions().dtype(torch::kByte).device(device));
+    pinned_int_workspaces_.reserve(kPinnedIntWorkspaceRingSize);
+    workspace_copy_done_events_.resize(kPinnedIntWorkspaceRingSize);
+    for (size_t i = 0; i < kPinnedIntWorkspaceRingSize; ++i) {
+        pinned_int_workspaces_.push_back(torch::empty(
+            {kIntWorkspaceBytes},
+            torch::TensorOptions().dtype(torch::kByte).device(torch::kCPU).pinned_memory(true)));
+    }
+}
+
+size_t FlashInferBackend::acquire_pinned_int_workspace() {
+    TORCH_CHECK(!pinned_int_workspaces_.empty(), "FlashInfer pinned workspace ring is empty");
+    const size_t slot = next_pinned_int_workspace_slot_;
+    next_pinned_int_workspace_slot_ = (next_pinned_int_workspace_slot_ + 1) % pinned_int_workspaces_.size();
+    wait_workspace_copy_done(slot);
+    return slot;
+}
+
+torch::Tensor& FlashInferBackend::pinned_int_workspace(size_t slot) {
+    TORCH_CHECK(slot < pinned_int_workspaces_.size(), "Invalid FlashInfer pinned workspace slot");
+    return pinned_int_workspaces_[slot];
+}
+
+void FlashInferBackend::wait_workspace_copy_done(size_t slot) {
+    TORCH_CHECK(slot < workspace_copy_done_events_.size(), "Invalid FlashInfer workspace event slot");
+    if (workspace_copy_done_events_[slot]) {
+        workspace_copy_done_events_[slot]->synchronize();
+        workspace_copy_done_events_[slot].reset();
+    }
+}
+
+void FlashInferBackend::record_workspace_copy_done(size_t slot) {
+    TORCH_CHECK(slot < workspace_copy_done_events_.size(), "Invalid FlashInfer workspace event slot");
+    workspace_copy_done_events_[slot] = std::make_shared<at::cuda::CUDAEvent>();
+    workspace_copy_done_events_[slot]->record(at::cuda::getCurrentCUDAStream());
 }
 
 torch::Tensor FlashInferBackend::get_ones_cpu(int bs) {
@@ -256,7 +293,9 @@ void FlashInferBackend::prepare_for_replay(Batch& batch) {
     TORCH_CHECK(plan_state->kv_chunk_size > 0, "Invalid FlashInfer decode kv chunk size");
 
     auto* kv_indptr_h = capture_metadata->kv_indptr_host_tensor.data_ptr<int32_t>();
-    auto* pinned_workspace = pinned_int_workspace_.data_ptr<uint8_t>();
+    const size_t workspace_slot = acquire_pinned_int_workspace();
+    auto& pinned_workspace_tensor = pinned_int_workspace(workspace_slot);
+    auto* pinned_workspace = pinned_workspace_tensor.data_ptr<uint8_t>();
     auto* request_indices_h =
         reinterpret_cast<int32_t*>(pinned_workspace + plan_info.request_indices_offset);
     auto* kv_tile_indices_h =
@@ -298,11 +337,12 @@ void FlashInferBackend::prepare_for_replay(Batch& batch) {
 
     auto stream = at::cuda::getCurrentCUDAStream().stream();
     auto copy_status = cudaMemcpyAsync(
-        int_workspace_.data_ptr(), pinned_int_workspace_.data_ptr(),
+        int_workspace_.data_ptr(), pinned_workspace_tensor.data_ptr(),
         decode_plan_copy_bytes(plan_info), cudaMemcpyHostToDevice, stream);
     TORCH_CHECK(copy_status == cudaSuccess,
                 "FlashInfer replay decode plan metadata copy failed: ",
                 cudaGetErrorString(copy_status));
+    record_workspace_copy_done(workspace_slot);
 
     batch.attn_metadata = capture_metadata;
 }
@@ -333,14 +373,17 @@ void FlashInferBackend::initialize_decode_metadata_once(FlashInferAttnMetadata& 
     int32_t* kv_indptr_ptr = metadata.kv_indptr_host_tensor.defined()
                                  ? metadata.kv_indptr_host_tensor.data_ptr<int32_t>()
                                  : metadata.kv_indptr_host.data();
+    const size_t workspace_slot = acquire_pinned_int_workspace();
+    auto& pinned_workspace_tensor = pinned_int_workspace(workspace_slot);
     auto plan_state = std::make_shared<DecodePlanState>();
     cudaError_t status = DecodePlan<HEAD_DIM, POS_ENCODING_MODE, DecodeAttentionVariant>(
         float_workspace_.data_ptr(), float_workspace_.nbytes(), int_workspace_.data_ptr(),
-        pinned_int_workspace_.data_ptr(), int_workspace_.nbytes(), plan_state->plan_info,
+        pinned_workspace_tensor.data_ptr(), int_workspace_.nbytes(), plan_state->plan_info,
         kv_indptr_ptr, batch_size, num_qo_heads_, 1, false, stream,
         work_estimation_func);
     TORCH_CHECK(status == cudaSuccess, "FlashInfer DecodePlan failed");
-    auto* pinned_workspace = pinned_int_workspace_.data_ptr<uint8_t>();
+    record_workspace_copy_done(workspace_slot);
+    auto* pinned_workspace = pinned_workspace_tensor.data_ptr<uint8_t>();
     auto* kv_chunk_size_h = reinterpret_cast<int32_t*>(
         pinned_workspace + plan_state->plan_info.kv_chunk_size_ptr_offset);
     plan_state->kv_chunk_size = kv_chunk_size_h[0];
@@ -527,7 +570,7 @@ torch::Tensor FlashInferBackend::forward(const torch::Tensor& q,
         DecodeParamsT params(
             reinterpret_cast<DTypeQ*>(q_view.data_ptr()), nullptr, paged_kv,
             reinterpret_cast<DTypeO*>(o.data_ptr()), nullptr, nullptr,
-            num_qo_heads_, num_qo_heads_ * head_dim_, head_dim_,
+            num_qo_heads_, q_view.stride(0), q_view.stride(1),
             -1, 0.0f, 1.0f / sqrt(head_dim_), 1.0f, 10000.0f
         );
 
@@ -550,13 +593,16 @@ torch::Tensor FlashInferBackend::forward(const torch::Tensor& q,
         PrefillPlanInfo plan_info;
         uint32_t total_num_rows = meta->qo_indptr_host[batch_size];
 
+        const size_t workspace_slot = acquire_pinned_int_workspace();
+        auto& pinned_workspace_tensor = pinned_int_workspace(workspace_slot);
         cudaError_t status = PrefillPlan<IdType>(
             float_workspace_.data_ptr(), float_workspace_.nbytes(),
-            int_workspace_.data_ptr(), pinned_int_workspace_.data_ptr(), int_workspace_.nbytes(),
+            int_workspace_.data_ptr(), pinned_workspace_tensor.data_ptr(), int_workspace_.nbytes(),
             plan_info, meta->qo_indptr_host.data(), meta->kv_indptr_host.data(),
             total_num_rows, batch_size, num_qo_heads_, num_kv_heads_, head_dim_, 1, false, sizeof(DTypeO), stream
         );
         TORCH_CHECK(status == cudaSuccess, "FlashInfer PrefillPlan failed");
+        record_workspace_copy_done(workspace_slot);
 
         const int64_t page_stride = k_cache_view.stride(0);
         const int64_t head_stride = k_cache_view.stride(1);
@@ -578,7 +624,7 @@ torch::Tensor FlashInferBackend::forward(const torch::Tensor& q,
             reinterpret_cast<DTypeQ*>(q_view.data_ptr()), paged_kv, nullptr,
             meta->indptr.data_ptr<IdType>(), meta->paged_kv_indptr.data_ptr<IdType>(), nullptr,
             reinterpret_cast<DTypeO*>(o.data_ptr()), nullptr, nullptr,
-            num_qo_heads_, num_qo_heads_ * head_dim_, head_dim_,
+            num_qo_heads_, q_view.stride(0), q_view.stride(1),
             -1, 0.0f, 1.0f / sqrt(head_dim_), 1.0f, 10000.0f
         );
 

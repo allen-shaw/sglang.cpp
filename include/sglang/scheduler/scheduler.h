@@ -82,8 +82,6 @@ class Scheduler {
     std::shared_ptr<at::cuda::CUDAEvent> last_forward_done_event_;
     torch::Tensor prepare_positions_i32_host_;
     torch::Tensor prepare_positions_i32_device_;
-    torch::Tensor prepare_positions_i64_host_;
-    torch::Tensor prepare_positions_i64_device_;
     torch::Tensor prepare_mapping_host_;
     torch::Tensor prepare_mapping_device_;
     torch::Tensor prepare_write_mapping_host_;

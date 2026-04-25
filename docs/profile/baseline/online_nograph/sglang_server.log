@@ -1,0 +1,132 @@
+Loading weights from: /root/.cache/huggingface/hub/models--Qwen--Qwen3-0.6B/snapshots/c1899de289a04d12100db370d81485cdf75e47ca/model.safetensors
+Total merged weight tensors: 227
+Loaded 227 parameters, skipped 0
+begin to listen 1919
+listen port 1919 successfully
+new connection comming, id: 1
+read http header error: Bad file descriptor
+new connection comming, id: 2
+new connection comming, id: 3
+new connection comming, id: 4
+new connection comming, id: 5
+new connection comming, id: 6
+new connection comming, id: 7
+new connection comming, id: 8
+new connection comming, id: 9
+new connection comming, id: 10
+new connection comming, id: 11
+new connection comming, id: 12
+new connection comming, id: 13
+new connection comming, id: 14
+new connection comming, id: 15
+new connection comming, id: 16
+new connection comming, id: 17
+new connection comming, id: 18
+new connection comming, id: 19
+new connection comming, id: 20
+new connection comming, id: 21
+new connection comming, id: 22
+new connection comming, id: 23
+new connection comming, id: 24
+new connection comming, id: 25
+new connection comming, id: 26
+new connection comming, id: 27
+new connection comming, id: 28
+new connection comming, id: 29
+new connection comming, id: 30
+new connection comming, id: 31
+new connection comming, id: 32
+new connection comming, id: 33
+new connection comming, id: 34
+new connection comming, id: 35
+new connection comming, id: 36
+new connection comming, id: 37
+new connection comming, id: 38
+new connection comming, id: 39
+new connection comming, id: 40
+new connection comming, id: 41
+new connection comming, id: 42
+new connection comming, id: 43
+new connection comming, id: 44
+new connection comming, id: 45
+new connection comming, id: 46
+new connection comming, id: 47
+new connection comming, id: 48
+new connection comming, id: 49
+new connection comming, id: 50
+new connection comming, id: 51
+new connection comming, id: 52
+new connection comming, id: 53
+new connection comming, id: 54
+new connection comming, id: 55
+new connection comming, id: 56
+new connection comming, id: 57
+new connection comming, id: 58
+new connection comming, id: 59
+new connection comming, id: 60
+new connection comming, id: 61
+new connection comming, id: 62
+new connection comming, id: 63
+new connection comming, id: 64
+new connection comming, id: 65
+new connection comming, id: 66
+new connection comming, id: 67
+new connection comming, id: 68
+new connection comming, id: 69
+new connection comming, id: 70
+new connection comming, id: 71
+new connection comming, id: 72
+new connection comming, id: 73
+new connection comming, id: 74
+new connection comming, id: 75
+new connection comming, id: 76
+new connection comming, id: 77
+new connection comming, id: 78
+new connection comming, id: 79
+new connection comming, id: 80
+new connection comming, id: 81
+new connection comming, id: 82
+new connection comming, id: 83
+new connection comming, id: 84
+new connection comming, id: 85
+new connection comming, id: 86
+new connection comming, id: 87
+new connection comming, id: 88
+new connection comming, id: 89
+new connection comming, id: 90
+new connection comming, id: 91
+new connection comming, id: 92
+new connection comming, id: 93
+new connection comming, id: 94
+new connection comming, id: 95
+new connection comming, id: 96
+new connection comming, id: 97
+new connection comming, id: 98
+new connection comming, id: 99
+new connection comming, id: 100
+new connection comming, id: 101
+terminate called after throwing an instance of 'c10::AcceleratorError'
+  what():  CUDA error: an illegal memory access was encountered
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
+
+Exception raised from c10_cuda_check_implementation at /pytorch/c10/cuda/CUDAException.cpp:42 (most recent call first):
+frame #0: c10::Error::Error(c10::SourceLocation, std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char> >) + 0x80 (0x7f9f5b46aeb0 in /root/miniconda3/lib/python3.12/site-packages/torch/lib/libc10.so)
+frame #1: <unknown function> + 0x111c7 (0x7f9f5b4ff1c7 in /root/miniconda3/lib/python3.12/site-packages/torch/lib/libc10_cuda.so)
+frame #2: <unknown function> + 0x2c07da (0x556e4f2fe7da in build/sglang_server)
+frame #3: <unknown function> + 0x2dceff (0x556e4f31aeff in build/sglang_server)
+frame #4: <unknown function> + 0x2bc9a1 (0x556e4f2fa9a1 in build/sglang_server)
+frame #5: <unknown function> + 0x2be296 (0x556e4f2fc296 in build/sglang_server)
+frame #6: <unknown function> + 0x2be56d (0x556e4f2fc56d in build/sglang_server)
+frame #7: <unknown function> + 0x14723e (0x556e4f18523e in build/sglang_server)
+frame #8: <unknown function> + 0x150578 (0x556e4f18e578 in build/sglang_server)
+frame #9: <unknown function> + 0x15054d (0x556e4f18e54d in build/sglang_server)
+frame #10: <unknown function> + 0x1504dd (0x556e4f18e4dd in build/sglang_server)
+frame #11: <unknown function> + 0x1504b5 (0x556e4f18e4b5 in build/sglang_server)
+frame #12: <unknown function> + 0x150485 (0x556e4f18e485 in build/sglang_server)
+frame #13: <unknown function> + 0x1503a9 (0x556e4f18e3a9 in build/sglang_server)
+frame #14: <unknown function> + 0xdc253 (0x7f9f5aeb0253 in /usr/lib/x86_64-linux-gnu/libstdc++.so.6)
+frame #15: <unknown function> + 0x94ac3 (0x7f9f5ac3fac3 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+frame #16: clone + 0x44 (0x7f9f5acd0a84 in /usr/lib/x86_64-linux-gnu/libc.so.6)
+
