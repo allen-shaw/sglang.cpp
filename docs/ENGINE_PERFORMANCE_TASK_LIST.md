@@ -38,6 +38,13 @@ Primary acceptance remains online `/generate` against `mini-sglang` at scales `0
 | T3.6 | Completed | Reduce FlashInfer pinned workspace reuse waits | Ring expanded from 4 to 32; correctness passed; Release scale `1.0` ratio reached `1.0041` |
 | T4.0 | Completed | Rebuild and benchmark Release configuration | Release build passed; tok/req exceeded mini at scales `0.4` and `1.0`, but full E2E gate still not met |
 | T4.1 | Rejected | Decode-priority scheduler probe for lower E2E | Broke chunked-prefill SchedulerE2E; reverted |
+| T4.2 | Rejected | Add sparse extra CUDA graph batch sizes around 64-80 | Latency improved in some probes, but tok/req ratios stayed below current-best; no default/config change retained |
+| T5.1 | Rejected | Fuse graph replay input/out_loc/positions capture-buffer copies into one CUDA kernel | Correctness passed, but online ratios regressed; reverted |
+| T5.2 | Rejected | Replace input-id int32-to-int64 cast with custom int32 embedding kernel | Correctness passed, but scalar/vectorized kernels failed throughput gate; reverted |
+| T5.3 | Rejected | Reuse pinned CPU next-token output buffers with a ring | Correctness passed, but scale `0.8`/`1.0` throughput and latency regressed; reverted |
+| T5.4 | Rejected | Avoid per-step temperature tensor H2D copy for uniform-temperature batches | Correctness passed, but online tok/req ratios regressed; reverted |
+| T5.5 | Rejected | Mirror KV page table on host to avoid device-to-pageable-CPU page-index copies | Correctness passed, but online tok/req ratios regressed to `0.9927/0.9927/0.9938`; reverted |
+| T5.6 | Rejected | Reuse pinned/device index workspace for prefill `select_sampling_logits` | Correctness passed, but online tok/req ratios regressed to `0.9862/0.9953/0.9896`; reverted |
 
 ## Current Task Notes
 
@@ -300,3 +307,17 @@ Result:
 
 - `TestSchedulerE2E.ChunkedPrefillCanArriveWhileAnotherRequestIsDecoding` failed.
 - The change was reverted.
+
+### Round 6 rejected probes
+
+Attempted and reverted or discarded:
+
+- Fresh aligned `nsys` at scale `0.8` still points to host/API overhead: `cudaEventSynchronize` is `3300.9 ms / 3940` for sglang.cpp versus `2916.9 ms / 1158` for mini, `cudaMemcpyAsync` is `297.1 ms / 13039` versus `53.6 ms / 9640`, and `cudaStreamSynchronize` remains a top item only for sglang.cpp.
+- Rotary cache duplication for FlashInfer v0.2.0 changed chat-completion output distribution and failed `TestHttpE2E`.
+- A fused CUDA kernel for graph replay capture-buffer updates replaced three small copies with one launch. Correctness passed, but online ratios regressed to `0.9819/0.9913/0.9924`.
+- A custom int32 embedding path removed the explicit input-id int64 cast. Correctness passed, but scalar and vectorized variants failed throughput gates; best scalar run was `0.9823/0.9950/0.9949`.
+- A 4-slot pinned CPU next-token output buffer ring reduced allocation churn, but scale `0.8`/`1.0` regressed.
+- A uniform-temperature sampler fast path avoided one H2D copy for homogeneous sampling params. Correctness passed, but online ratios were `0.9848/0.9918/0.9903`; reverted.
+- A host-side KV page-table mirror removed the direct need to copy page indices back from GPU when caching/freeing requests. Correctness passed, but online ratios were `0.9927/0.9927/0.9938`; reverted.
+- A pinned/device index workspace for prefill sampling-logit selection targeted small pageable H2D copies before stream sync. Correctness passed, but online ratios were `0.9862/0.9953/0.9896`; reverted.
+- Sparse graph batch-size probes (`1..64,72,80,88,96,104,112,120,128` and `1..80,96,112,128`) improved some latency numbers but did not improve tok/req ratios enough.

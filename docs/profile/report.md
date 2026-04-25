@@ -62,6 +62,14 @@ After these changes, overlap smoke tests that previously crashed now complete wi
 | round-5 / T3.6 | FlashInfer pinned workspace ring 32 | retained; reduces early pinned workspace reuse waits |
 | round-5 / T4.0 | Release build | retained; scale 0.4 and 1.0 throughput exceed mini |
 | round-5 / T4.1 probe | decode-priority scheduling | failed SchedulerE2E; reverted |
+| round-6 / rotary cache probe | duplicate half-dim rotary cache for FlashInfer v0.2.0 | failed HttpE2E chat-answer checks; reverted |
+| round-6 / graph copy kernel | fuse graph replay capture-buffer copies | correctness passed but online ratios regressed; reverted |
+| round-6 / int32 embedding | remove input-id int64 cast with custom embedding kernels | correctness passed but throughput gate failed; reverted |
+| round-6 / next-token CPU ring | reuse pinned CPU output buffers | correctness passed but scale 0.8/1.0 regressed; reverted |
+| round-6 / uniform temperature | skip per-step temperature tensor H2D copy for homogeneous batches | correctness passed but throughput gate failed; reverted |
+| round-6 / graph batch-size probes | add sparse graph batch sizes around 64-80 | latency improved in some probes but tok/req gate failed; not retained |
+| round-6 / host page table mirror | avoid GPU-to-pageable-CPU page-index copies in cache/free path | correctness passed but online ratios regressed; reverted |
+| round-6 / select-index workspace | reuse pinned/device int64 indices for prefill sampling-logit selection | correctness passed but online ratios regressed; reverted |
 
 Best pre-optimization full online result retained in artifacts:
 
@@ -236,3 +244,32 @@ The remaining gap is mostly host/API and queueing latency rather than raw GPU ke
 - Improve E2E latency without breaking chunked-prefill semantics; the naive decode-priority attempt was invalid.
 - Continue closing the remaining QK RMSNorm and rotary gap against mini's fused kernels.
 - Investigate why scale `0.8` remains below mini while scales `0.4` and `1.0` exceed it.
+
+Fresh aligned `nsys` at online scale `0.8` (`docs/profile/round-6/nsys_scale08_current/`) confirmed that the remaining gap is still host/API dominated:
+
+| CUDA API | sglang.cpp | mini-sglang | conclusion |
+|---|---:|---:|---|
+| `cudaEventSynchronize` | `3300.9 ms / 3940` | `2916.9 ms / 1158` | sglang.cpp waits much more often |
+| `cudaMemcpyAsync` | `297.1 ms / 13039` | `53.6 ms / 9640` | sglang.cpp has higher copy API time |
+| `cudaStreamSynchronize` | `272.0 ms / 621` | not a top item | caused by small pageable H2D patterns and stream waits |
+| `cudaLaunchKernel` + `cudaLaunchKernelEx` | `149.3 ms / 39856` | `227.5 ms / 39439` | kernel launch count is not the largest current gap |
+| `cudaGraphLaunch` | `49.7 ms / 477` | `34.3 ms / 486` | sglang.cpp graph launch API cost remains higher |
+
+The same run showed GPU kernel time close enough that isolated host-copy rewrites must still pass the E2E gate. Two targeted attempts, a host KV page-table mirror and a pinned prefill select-index workspace, both reduced plausible API sources in theory but regressed online throughput, so they were reverted.
+
+## Round 6 Rejected Attempts
+
+No new code optimization was retained in round 6.
+
+| attempt | correctness | online result | decision |
+|---|---|---|---|
+| duplicate rotary cache to full `rotary_dim` | failed `TestHttpE2E` chat checks | not benchmarked | reverted |
+| fused graph capture-buffer copy kernel | passed key E2E | ratios `0.9819/0.9913/0.9924` | reverted |
+| scalar int32 embedding kernel | passed key E2E | ratios `0.9823/0.9950/0.9949` | reverted |
+| vectorized int32 embedding kernel | passed key E2E | ratios `0.9875/0.9876/0.9917` | reverted |
+| pinned CPU next-token output ring | passed key E2E | ratios `0.9944/0.9906/0.9895` | reverted |
+| uniform-temperature sampler fast path | passed key E2E | ratios `0.9848/0.9918/0.9903` | reverted |
+| host KV page-table mirror | passed `TestCacheManager`, `TestEngineE2E`, `TestSchedulerE2E`, `TestHttpE2E` | ratios `0.9927/0.9927/0.9938` | reverted |
+| prefill select-index pinned workspace | passed key E2E | ratios `0.9862/0.9953/0.9896` | reverted |
+| graph batch sizes `1..64,72,80,88,96,104,112,120,128` | config-only | ratios `0.9940/0.9942/0.9920` | not retained |
+| graph batch sizes `1..80,96,112,128` | config-only | ratios `0.9860/0.9942/0.9918` | not retained |
