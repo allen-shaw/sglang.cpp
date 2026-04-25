@@ -45,6 +45,8 @@ Primary acceptance remains online `/generate` against `mini-sglang` at scales `0
 | T5.4 | Rejected | Avoid per-step temperature tensor H2D copy for uniform-temperature batches | Correctness passed, but online tok/req ratios regressed; reverted |
 | T5.5 | Rejected | Mirror KV page table on host to avoid device-to-pageable-CPU page-index copies | Correctness passed, but online tok/req ratios regressed to `0.9927/0.9927/0.9938`; reverted |
 | T5.6 | Rejected | Reuse pinned/device index workspace for prefill `select_sampling_logits` | Correctness passed, but online tok/req ratios regressed to `0.9862/0.9953/0.9896`; reverted |
+| T5.7 | Rejected | Defer non-streaming host token readback until request completion | Key E2E passed, but online async run hit CUDA illegal memory access due graph/metadata buffer reuse beyond one-step overlap; reverted |
+| T5.8 | Rejected | Increase FlashInfer pinned int workspace ring from 32 to 64 | Correctness passed, but online ratios regressed to `0.9817/0.9823/0.9887` and pinned memory doubled; reverted |
 
 ## Current Task Notes
 
@@ -320,4 +322,6 @@ Attempted and reverted or discarded:
 - A uniform-temperature sampler fast path avoided one H2D copy for homogeneous sampling params. Correctness passed, but online ratios were `0.9848/0.9918/0.9903`; reverted.
 - A host-side KV page-table mirror removed the direct need to copy page indices back from GPU when caching/freeing requests. Correctness passed, but online ratios were `0.9927/0.9927/0.9938`; reverted.
 - A pinned/device index workspace for prefill sampling-logit selection targeted small pageable H2D copies before stream sync. Correctness passed, but online ratios were `0.9862/0.9953/0.9896`; reverted.
+- A non-streaming deferred-token-readback fast path skipped per-step CPU token copies for `ignore_eos=true` requests. Key E2E passed and `CUDA_LAUNCH_BLOCKING=1` debug runs completed, but normal async online crashed with CUDA illegal memory access. The failure is consistent with CPU enqueue running beyond the current one-step-overlap safety assumption and reusing CUDA graph/metadata buffers before GPU consumption; reverted.
+- Expanding the FlashInfer pinned int workspace ring from 32 to 64 doubled pinned workspace memory and regressed online ratios to `0.9817/0.9823/0.9887`; reverted.
 - Sparse graph batch-size probes (`1..64,72,80,88,96,104,112,120,128` and `1..80,96,112,128`) improved some latency numbers but did not improve tok/req ratios enough.

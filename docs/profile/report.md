@@ -70,6 +70,8 @@ After these changes, overlap smoke tests that previously crashed now complete wi
 | round-6 / graph batch-size probes | add sparse graph batch sizes around 64-80 | latency improved in some probes but tok/req gate failed; not retained |
 | round-6 / host page table mirror | avoid GPU-to-pageable-CPU page-index copies in cache/free path | correctness passed but online ratios regressed; reverted |
 | round-6 / select-index workspace | reuse pinned/device int64 indices for prefill sampling-logit selection | correctness passed but online ratios regressed; reverted |
+| round-6 / deferred non-streaming token readback | skip per-step CPU token readback for non-streaming `ignore_eos=true` requests | key E2E passed but async online crashed from unsafe multi-step graph/metadata reuse; reverted |
+| round-6 / workspace ring 64 | increase FlashInfer pinned int workspace ring from 32 to 64 | correctness passed but online ratios regressed and pinned memory doubled; reverted |
 
 Best pre-optimization full online result retained in artifacts:
 
@@ -271,5 +273,7 @@ No new code optimization was retained in round 6.
 | uniform-temperature sampler fast path | passed key E2E | ratios `0.9848/0.9918/0.9903` | reverted |
 | host KV page-table mirror | passed `TestCacheManager`, `TestEngineE2E`, `TestSchedulerE2E`, `TestHttpE2E` | ratios `0.9927/0.9927/0.9938` | reverted |
 | prefill select-index pinned workspace | passed key E2E | ratios `0.9862/0.9953/0.9896` | reverted |
+| deferred non-streaming token readback | passed key E2E; blocking debug runs completed | normal async online hit CUDA illegal memory access before completion | reverted |
+| FlashInfer workspace ring 64 | passed key E2E | ratios `0.9817/0.9823/0.9887` | reverted |
 | graph batch sizes `1..64,72,80,88,96,104,112,120,128` | config-only | ratios `0.9940/0.9942/0.9920` | not retained |
 | graph batch sizes `1..80,96,112,128` | config-only | ratios `0.9860/0.9942/0.9918` | not retained |
