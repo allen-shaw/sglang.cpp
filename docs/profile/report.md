@@ -224,6 +224,16 @@ T3.6 expanded the FlashInfer pinned int workspace ring from 4 to 32 slots. Corre
 
 T4.0 found that the active build directory was configured as `CMAKE_BUILD_TYPE=Debug`. Rebuilding as Release is now required for performance measurements.
 
+Release is now a hard gate for all subsequent performance decisions. Each optimization round must reconfigure with:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+grep 'CMAKE_BUILD_TYPE:STRING=Release' build/CMakeCache.txt
+```
+
+Any benchmark/profile collected from `CMAKE_BUILD_TYPE=Debug` is diagnostic only and must not be used to retain or reject an optimization.
+
 Release current-best online comparison:
 
 | scale | req/tok ratio | avg E2E ratio | p90 E2E ratio |
@@ -277,3 +287,101 @@ No new code optimization was retained in round 6.
 | FlashInfer workspace ring 64 | passed key E2E | ratios `0.9817/0.9823/0.9887` | reverted |
 | graph batch sizes `1..64,72,80,88,96,104,112,120,128` | config-only | ratios `0.9940/0.9942/0.9920` | not retained |
 | graph batch sizes `1..80,96,112,128` | config-only | ratios `0.9860/0.9942/0.9918` | not retained |
+
+## Round 7 Release Retest
+
+The initial round-7 follow-up experiments were run while `build/CMakeCache.txt` was still configured as `CMAKE_BUILD_TYPE=Debug`. Those measurements are invalid for performance decisions. Round 7 is being restarted with an explicit Release gate:
+
+- Configure: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`
+- Build: `cmake --build build -j$(nproc)`
+- Verify: `grep 'CMAKE_BUILD_TYPE:STRING=Release' build/CMakeCache.txt`
+- Then rerun current-best baseline and each candidate optimization under the same Release configuration.
+
+Release gate completed on 2026-04-26:
+
+- Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)`.
+- Verification: `CMAKE_BUILD_TYPE:STRING=Release`.
+- Correctness for the candidate: `TestNormalization`, `TestEngineE2E`, `TestSchedulerE2E`, and `TestHttpE2E` passed.
+- Full Release `ctest --test-dir build --output-on-failure` result: 25/30 tests passed. Failures were `TestLlama`, `TestMistral`, `TestQwen`, `TestQwen3MoE`, and `TestQwen3Integration`; these are outside the online `/generate` acceptance path and are not treated as blocking by the current performance gate. The blocking key tests still passed.
+
+Release current-best baseline rerun:
+
+| scale | req/tok ratio | avg E2E ratio | p90 E2E ratio |
+|---:|---:|---:|---:|
+| 0.4 | 0.9945 | 1.0063 | 1.0072 |
+| 0.8 | 1.0023 | 0.9898 | 0.9942 |
+| 1.0 | 0.9969 | 1.0082 | 1.0083 |
+
+Artifacts: `docs/profile/round-7/release_current_best_rerun/`.
+
+Release fused Q/K RMSNorm + narrow candidate:
+
+| scale | req/tok ratio | avg E2E ratio | p90 E2E ratio |
+|---:|---:|---:|---:|
+| 0.4 | 0.9953 | 1.0063 | 1.0047 |
+| 0.8 | 1.0086 | 0.9768 | 0.9784 |
+| 1.0 | 1.0047 | 0.9863 | 0.9839 |
+
+Artifacts: `docs/profile/round-7/release_fused_qk_rmsnorm_narrow/`.
+
+Decision:
+
+- Retain the fused Q/K RMSNorm + narrow candidate. It improves Release throughput and latency versus the Release baseline at all tested scales.
+- The original final acceptance target is still not fully met because scale `0.4` remains below mini-sglang on throughput by about `0.47%`.
+- Next target: profile or micro-benchmark the low-concurrency scale `0.4` path specifically; avoid using Debug measurements for this decision.
+
+## Release Retest of T4.2 and T5 Rejected Attempts
+
+The earlier T4.2/T5 records did not contain a per-attempt `CMAKE_BUILD_TYPE` proof line, so the attempts below were rebuilt and re-run under an explicit Release gate on 2026-04-26:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+grep 'CMAKE_BUILD_TYPE:STRING=Release' build/CMakeCache.txt
+```
+
+Baseline for this retest batch: `docs/profile/release_retest/t4_0_baseline/`.
+
+| attempt | scale 0.4 req/tok | scale 0.8 req/tok | scale 1.0 req/tok | scale 0.4 avg | scale 0.8 avg | scale 1.0 avg | decision |
+|---|---:|---:|---:|---:|---:|---:|---|
+| T4.0 baseline | 0.9897 | 1.0013 | 1.0007 | 1.0137 | 0.9892 | 0.9981 | reference |
+| T4.2 graph `1..64,72,80,88,96,104,112,120,128` | 0.9862 | 0.9998 | 0.9985 | 1.0176 | 1.0007 | 1.0057 | reject |
+| T4.2 graph `1..80,96,112,128` | 0.9917 | 1.0045 | 1.0019 | 1.0103 | 0.9854 | 0.9867 | partial, still fails 0.4 gate |
+| T5.1 fused graph capture-buffer copy kernel | 0.9913 | 1.0010 | 1.0001 | 1.0142 | 0.9971 | 1.0013 | reject |
+| T5.2 int32 embedding kernel | 0.9902 | 1.0028 | 1.0029 | 1.0159 | 0.9885 | 0.9836 | partial, still fails 0.4 gate |
+| T5.3 pinned CPU next-token output ring | 0.9916 | 0.9992 | 0.9986 | 1.0094 | 0.9995 | 1.0072 | reject |
+| T5.4 uniform-temperature sampler fast path | n/a | n/a | n/a | n/a | n/a | n/a | not exercised by `/generate`; server forces greedy `temperature=0` for this benchmark |
+| T5.5 host KV page-table mirror | 0.9915 | 1.0020 | 0.9980 | 1.0108 | 0.9959 | 1.0057 | reject |
+| T5.6 prefill select-index workspace | 0.9933 | 1.0024 | 1.0018 | 1.0133 | 0.9953 | 0.9916 | partial, still fails 0.4 gate |
+| T5.8 FlashInfer workspace ring 64 | 0.9907 | 0.9966 | 0.9976 | 1.0115 | 1.0075 | 1.0064 | reject |
+
+Artifacts are under `docs/profile/release_retest/`.
+
+Conclusion:
+
+- The suspicion was valid: without per-attempt Release proof, the older records were not sufficiently auditable.
+- Re-running under Release shows that several attempts are not strictly "no effect"; T4.2 `1..80`, T5.2, and T5.6 have partial gains versus this retest baseline.
+- None of the independent attempts satisfies the final all-scale gate because scale `0.4` remains below mini-sglang and has worse avg E2E.
+- T5.6 is the most useful candidate to stack-test with the retained T6.0 fused Q/K RMSNorm + narrow optimization.
+
+## Round 7 Stack Tests After Release Retest
+
+The current retained code baseline is T6.0: fused Q/K RMSNorm + `narrow` in attention. It was re-run before stack tests:
+
+| attempt | scale 0.4 req/tok | scale 0.8 req/tok | scale 1.0 req/tok | scale 0.4 avg | scale 0.8 avg | scale 1.0 avg | decision |
+|---|---:|---:|---:|---:|---:|---:|---|
+| T6.0 fused Q/K baseline | 0.9966 | 1.0037 | 1.0035 | 1.0057 | 0.9885 | 0.9868 | retained |
+| T6.2 T6.0 + T5.6 select-index workspace | 0.9964 | 1.0063 | 1.0035 | 1.0022 | 0.9821 | 0.9859 | rejected; 0.4 throughput did not improve |
+| T6.3 T6.0 + graph `1..80,96,112,128` | 0.9977 | 1.0099 | 1.0036 | 1.0001 | 0.9730 | 0.9887 | best config probe, still fails 0.4 throughput gate |
+| T6.4 T6.0 + graph `1..96,112,128` | 0.9945 | 1.0024 | 1.0031 | 1.0105 | 0.9962 | 0.9917 | rejected |
+| T6.5 T6.0 + max-running `96` + graph `1..80,96` | 0.9952 | 1.0067 | 1.0025 | 1.0041 | 0.9813 | 0.9907 | rejected |
+| T6.6 T6.0 + T5.2 int32 embedding + graph `1..80` | 0.9897 | 1.0106 | 1.0022 | 1.0157 | 0.9729 | 0.9942 | rejected; severe 0.4 regression |
+
+Artifacts: `docs/profile/release_retest/t6_*`.
+
+Conclusion:
+
+- The only retained code change remains T6.0 fused Q/K RMSNorm + `narrow`.
+- T6.3 graph `1..80,96,112,128` is the best measured runtime configuration so far, improving scale `0.4` from `0.9966` to `0.9977`, but it still does not satisfy the final `>1.0` throughput gate.
+- T5.6 and T5.2 should not be stacked by default; both failed the scale `0.4` decision criterion when combined with T6.0/T6.3.
+- The remaining gap is now too small for broad host-copy guesses. Next work should collect a focused `nsys` comparison at scale `0.4` using the T6.3 config and inspect the residual host/API difference.

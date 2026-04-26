@@ -13,6 +13,15 @@ Tasks must be completed in order. Do not start the next task until the current t
 - produced before/after benchmark or profile data,
 - and updated `docs/profile/report.md` or a round-specific note with the result.
 
+All performance benchmarks and profiles after T4.0 must use a Release build. Before every benchmark/profile run:
+
+- run `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`,
+- run `cmake --build build -j$(nproc)`,
+- verify `build/CMakeCache.txt` contains `CMAKE_BUILD_TYPE:STRING=Release`,
+- and record the Release build mode in the round notes.
+
+Debug builds may be used for local correctness debugging only. Debug benchmark results must not be used to accept or reject an optimization.
+
 Primary acceptance remains online `/generate` against `mini-sglang` at scales `0.4`, `0.8`, and `1.0`:
 
 - `tok_ratio_sglang_over_mini > 1.0`
@@ -47,8 +56,121 @@ Primary acceptance remains online `/generate` against `mini-sglang` at scales `0
 | T5.6 | Rejected | Reuse pinned/device index workspace for prefill `select_sampling_logits` | Correctness passed, but online tok/req ratios regressed to `0.9862/0.9953/0.9896`; reverted |
 | T5.7 | Rejected | Defer non-streaming host token readback until request completion | Key E2E passed, but online async run hit CUDA illegal memory access due graph/metadata buffer reuse beyond one-step overlap; reverted |
 | T5.8 | Rejected | Increase FlashInfer pinned int workspace ring from 32 to 64 | Correctness passed, but online ratios regressed to `0.9817/0.9823/0.9887` and pinned memory doubled; reverted |
+| T6.0 | Completed | Re-test post-T4.0 optimization candidates under Release only | Release baseline rerun complete; fused Q/K RMSNorm + narrow candidate retained after Release correctness and benchmark |
+| T6.1 | Completed | Release retest T4.2 and T5 rejected attempts | Explicit Release retest completed; partial gains identified for T5.2/T5.6 but no independent attempt passes all-scale gate |
+| T6.2 | Rejected | Stack-test T5.6 select-index workspace with retained T6.0 fused Q/K RMSNorm | Release stack improved 0.8 but did not improve 0.4 throughput; reverted |
+| T6.3 | Completed | Probe dense graph batch sizes `1..80` with retained T6.0 fused Q/K RMSNorm | Best config so far: scale `0.4` improved to `0.9977`, but still below final gate |
+| T6.4 | Rejected | Probe dense graph batch sizes `1..96` with retained T6.0 fused Q/K RMSNorm | Regressed versus T6.3 and T6.0 on scale `0.4`; not retained |
+| T6.5 | Rejected | Probe max-running `96` with graph `1..80,96` | Did not improve scale `0.4`; not retained |
+| T6.6 | Rejected | Stack-test T5.2 int32 embedding with retained T6.0 and graph `1..80` | Severe scale `0.4` regression; reverted |
+| T6.7 | Pending | Focused scale `0.4` nsys comparison with T6.3 config | Identify remaining host/API or GPU gap responsible for final 0.2-0.3% throughput deficit |
+| T6.8 | Pending | Close remaining scale `0.4` Release throughput gap | All three online scales pass final mini-sglang gate in Release |
 
 ## Current Task Notes
+
+### T6.0 Release-only retest gate
+
+Problem:
+
+- Round-7 follow-up experiments were initially measured while the active build directory was still `CMAKE_BUILD_TYPE=Debug`.
+- Those measurements are useful only as diagnostics and cannot be used to retain or reject performance changes.
+
+Implementation:
+
+- Added a hard Release gate to the task policy and optimization plan.
+- Reconfigured and rebuilt the active `build` directory with `-DCMAKE_BUILD_TYPE=Release`.
+- Verified `build/CMakeCache.txt` contains `CMAKE_BUILD_TYPE:STRING=Release` before benchmark runs.
+- Re-ran the current-best baseline and the fused Q/K RMSNorm + narrow candidate with the same online parameters.
+
+Validation:
+
+- Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)`.
+- Verify: `grep 'CMAKE_BUILD_TYPE:STRING=Release' build/CMakeCache.txt`.
+- Correctness: `TestNormalization`, `TestEngineE2E`, `TestSchedulerE2E`, and `TestHttpE2E` passed.
+- Full Release `ctest` was also run. 25/30 tests passed; the failures were `TestLlama`, `TestMistral`, `TestQwen`, `TestQwen3MoE`, and `TestQwen3Integration`, which remain outside the current online `/generate` acceptance gate.
+- Performance artifacts:
+  - baseline: `docs/profile/round-7/release_current_best_rerun/`
+  - candidate: `docs/profile/round-7/release_fused_qk_rmsnorm_narrow/`
+
+Result:
+
+| scale | baseline req/tok ratio | candidate req/tok ratio | baseline avg E2E ratio | candidate avg E2E ratio | decision |
+|---:|---:|---:|---:|---:|---|
+| 0.4 | 0.9945 | 0.9953 | 1.0063 | 1.0063 | improved but still below mini |
+| 0.8 | 1.0023 | 1.0086 | 0.9898 | 0.9768 | passes final gate |
+| 1.0 | 0.9969 | 1.0047 | 1.0082 | 0.9863 | passes final gate |
+
+The fused Q/K RMSNorm + narrow candidate is retained because it improves Release throughput and latency versus the Release baseline at all tested scales. The remaining acceptance blocker is scale `0.4`, where throughput is still about `0.47%` below mini-sglang.
+
+### T6.1 Release retest of T4.2 and T5 rejected attempts
+
+Problem:
+
+- The older T4.2/T5 attempt records did not include per-attempt Release verification output.
+- This made the rejection evidence insufficiently auditable.
+
+Implementation:
+
+- Preserved the current T6.0 working state in a temporary stash.
+- Returned to the clean T4.0/current-best source state.
+- Rebuilt each retest with `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release`.
+- Verified `CMAKE_BUILD_TYPE:STRING=Release` before online benchmark runs.
+- Reconstructed missing rejected patches where no git commit/stash existed.
+- Reverted each independent probe after measuring it.
+
+Result:
+
+| attempt | scale 0.4 req/tok | scale 0.8 req/tok | scale 1.0 req/tok | decision |
+|---|---:|---:|---:|---|
+| T4.0 retest baseline | 0.9897 | 1.0013 | 1.0007 | reference |
+| T4.2 graph `1..64,72,80,88,96,104,112,120,128` | 0.9862 | 0.9998 | 0.9985 | reject |
+| T4.2 graph `1..80,96,112,128` | 0.9917 | 1.0045 | 1.0019 | partial, still fails 0.4 |
+| T5.1 graph capture-buffer copy kernel | 0.9913 | 1.0010 | 1.0001 | reject |
+| T5.2 int32 embedding | 0.9902 | 1.0028 | 1.0029 | partial, still fails 0.4 |
+| T5.3 next-token CPU ring | 0.9916 | 0.9992 | 0.9986 | reject |
+| T5.4 uniform-temperature sampler fast path | n/a | n/a | n/a | not exercised by `/generate`; benchmark is greedy |
+| T5.5 host page-table mirror | 0.9915 | 1.0020 | 0.9980 | reject |
+| T5.6 select-index workspace | 0.9933 | 1.0024 | 1.0018 | partial, best retested T5 candidate |
+| T5.8 workspace ring 64 | 0.9907 | 0.9966 | 0.9976 | reject |
+
+Artifacts: `docs/profile/release_retest/`.
+
+Conclusion:
+
+- The user's concern was valid; the old rejection records lacked enough Release proof.
+- Under explicit Release retest, T5.2 and T5.6 are not "zero effect"; they produce partial throughput/latency improvements.
+- None independently passes the final all-scale mini-sglang gate.
+- T5.6 should be stack-tested with the retained T6.0 fused Q/K RMSNorm + narrow optimization before being permanently rejected.
+
+### T6.2-T6.6 stack and config probes
+
+Implementation:
+
+- Re-ran the retained T6.0 fused Q/K RMSNorm + narrow baseline under Release.
+- Stack-tested T5.6 select-index workspace with T6.0.
+- Probed graph batch-size configs `1..80` and `1..96`.
+- Probed `max-running-requests=96`.
+- Stack-tested T5.2 int32 embedding with T6.0 and graph `1..80`.
+- Reverted rejected code probes after benchmarking.
+
+Result:
+
+| attempt | scale 0.4 req/tok | scale 0.8 req/tok | scale 1.0 req/tok | decision |
+|---|---:|---:|---:|---|
+| T6.0 fused Q/K baseline | 0.9966 | 1.0037 | 1.0035 | retained |
+| T6.2 + T5.6 select-index workspace | 0.9964 | 1.0063 | 1.0035 | rejected |
+| T6.3 + graph `1..80,96,112,128` | 0.9977 | 1.0099 | 1.0036 | best config probe, still fails 0.4 |
+| T6.4 + graph `1..96,112,128` | 0.9945 | 1.0024 | 1.0031 | rejected |
+| T6.5 max-running `96` + graph `1..80,96` | 0.9952 | 1.0067 | 1.0025 | rejected |
+| T6.6 + T5.2 int32 embedding + graph `1..80` | 0.9897 | 1.0106 | 1.0022 | rejected |
+
+Artifacts: `docs/profile/release_retest/t6_*`.
+
+Conclusion:
+
+- Keep only the T6.0 code change.
+- Use graph `1..80,96,112,128` as the best measured runtime config for the next profile pass, but do not call it final acceptance because scale `0.4` is still below `1.0`.
+- Next task is a focused `nsys` comparison at scale `0.4` using the T6.3 config.
 
 ### T1.1 Ring-buffer FlashInfer pinned metadata workspace
 
@@ -68,7 +190,8 @@ Implementation:
 
 Validation:
 
-- Build: `cmake --build build -j$(nproc)`.
+- Build: `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j$(nproc)`.
+- Verify: `grep 'CMAKE_BUILD_TYPE:STRING=Release' build/CMakeCache.txt`.
 - Correctness: key E2E tests for engine/scheduler/http.
 - Performance: run the same online comparison and aligned `nsys` current-best workflow, store artifacts in `docs/profile/round-5/`.
 

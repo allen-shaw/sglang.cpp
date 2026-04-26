@@ -17,23 +17,24 @@ AttentionLayer::AttentionLayer(int layer_id, int num_qo_heads, int num_kv_heads,
 
 torch::Tensor AttentionLayer::forward(const torch::Tensor& qkv, const torch::Tensor& positions) {
     // qkv is expected to be [total_tokens, qo_attn_dim + 2 * kv_attn_dim]
-    auto splits = qkv.split({qo_attn_dim_, kv_attn_dim_, kv_attn_dim_}, -1);
-    auto q = splits[0];
-    auto k = splits[1];
-    auto v = splits[2];
+    auto q = qkv.narrow(-1, 0, qo_attn_dim_);
+    auto k = qkv.narrow(-1, qo_attn_dim_, kv_attn_dim_);
+    auto v = qkv.narrow(-1, qo_attn_dim_ + kv_attn_dim_, kv_attn_dim_);
 
     auto q_view = q.view({-1, num_qo_heads_, head_dim_});
     auto k_view = k.view({-1, num_kv_heads_, head_dim_});
 
     // Apply QK norm if present (Qwen3 uses this)
-    if (q_norm_) {
+    if (q_norm_ && k_norm_) {
+        fused_qk_rmsnorm_inplace_3d_strided(q_view, k_view, *q_norm_, *k_norm_);
+    } else if (q_norm_) {
         q_norm_->forward_inplace_3d_strided(q_view);
-    }
-    if (k_norm_) {
+    } else if (k_norm_) {
         k_norm_->forward_inplace_3d_strided(k_view);
     }
 
     // Apply RoPE using precomputed cos/sin cache
+    TORCH_CHECK(rotary_, "AttentionLayer::forward requires rotary embedding");
     auto positions_mut = positions;  // need non-const for forward_inplace
     rotary_->forward_inplace(positions_mut, q_view, k_view);
 
