@@ -63,8 +63,9 @@ Primary acceptance remains online `/generate` against `mini-sglang` at scales `0
 | T6.4 | Rejected | Probe dense graph batch sizes `1..96` with retained T6.0 fused Q/K RMSNorm | Regressed versus T6.3 and T6.0 on scale `0.4`; not retained |
 | T6.5 | Rejected | Probe max-running `96` with graph `1..80,96` | Did not improve scale `0.4`; not retained |
 | T6.6 | Rejected | Stack-test T5.2 int32 embedding with retained T6.0 and graph `1..80` | Severe scale `0.4` regression; reverted |
-| T6.7 | Pending | Focused scale `0.4` nsys comparison with T6.3 config | Identify remaining host/API or GPU gap responsible for final 0.2-0.3% throughput deficit |
-| T6.8 | Pending | Close remaining scale `0.4` Release throughput gap | All three online scales pass final mini-sglang gate in Release |
+| T6.7 | Completed | Focused scale `0.4` nsys comparison with T6.3 config | Bottleneck identified as host/API synchronization and metadata-copy launch overhead, not a single slow model kernel |
+| T6.8 | Rejected | Probe scale `0.4` latency-oriented scheduler/readback changes | No probe passed the full all-scale gate; code changes reverted |
+| T6.9 | Pending | Close remaining scale `0.4` Release gate across all scales | All three online scales pass final mini-sglang gate in Release |
 
 ## Current Task Notes
 
@@ -171,6 +172,52 @@ Conclusion:
 - Keep only the T6.0 code change.
 - Use graph `1..80,96,112,128` as the best measured runtime config for the next profile pass, but do not call it final acceptance because scale `0.4` is still below `1.0`.
 - Next task is a focused `nsys` comparison at scale `0.4` using the T6.3 config.
+
+### T6.7 focused scale 0.4 profile
+
+Implementation:
+
+- Reconfigured and rebuilt Release.
+- Ran aligned `nsys` at online scale `0.4`, `256` requests, T6.3 graph config `1..80,96,112,128`.
+- Ran `SGLANG_CPP_PROFILE=1` on the same scale `0.4` shape for scheduler/engine breakdown.
+
+Result:
+
+| metric | sglang.cpp | mini-sglang | conclusion |
+|---|---:|---:|---|
+| `cudaEventSynchronize` | `6180 ms / 5737` | `5383 ms / 1700` | sglang.cpp has substantially more host waits |
+| `cudaMemcpyAsync` API | `543 ms / 18840` | `77 ms / 14401` | host-side async-copy API overhead remains high |
+| `cudaGraphLaunch` | `55 ms / 655` | `52 ms / 703` | graph launch itself is not the blocker |
+| represented GPU kernel time | about `2037 ms` | about `2081 ms` | model kernels are broadly aligned; sglang.cpp is not slower overall |
+| internal `avg_process_sync_us` | `4830.6 us` at 768 steps | n/a | scheduler output processing is dominated by synchronization |
+
+Decision:
+
+- T6.7 is complete. The remaining scale `0.4` problem is primarily host/API synchronization and batching policy, not engine operator throughput.
+- T6.8 should be a small, reversible probe targeting low-load latency: output readback synchronization, metadata H2D/API overhead, or low-pressure batch flushing.
+
+### T6.8 latency-oriented probes
+
+All probes were run under Release with T6.3 graph config `1..80,96,112,128`.
+
+Rejected probes:
+
+| probe | scale 0.4 req/tok | scale 0.4 avg | scale 0.4 p90 | all-scale decision |
+|---|---:|---:|---:|---|
+| disable overlap scheduling | `0.9876` | `1.0377` | `1.0286` | rejected; throughput and latency regressed |
+| FlashInfer workspace event `query()` before `synchronize()` | `1.0010` | `1.0221` | `1.0117` | rejected; latency still failed |
+| ready-first overlap processing | `1.0079` | `1.0064` | `1.0054` | rejected; latency still failed |
+| non-chunked decode burst `2` | `1.0164` | `0.9973` | `0.9942` | rejected; scale `1.0` avg/p90 regressed in all-scale run |
+| low-pressure decode burst, batch limit `64` | `1.0132` | `1.0044` | `0.9981` | rejected; scale `0.8`/`1.0` latency regressed |
+| low-pressure decode burst, batch limit `48` | `1.0167` | `0.9983` | `0.9959` | rejected; scale `0.8`/`1.0` latency regressed |
+| low-pressure decode burst, batch limit `32` | `1.0109` | `1.0113` | `1.0066` | rejected; scale `0.4` latency failed |
+| low-pressure decode burst, batch limit `40` | `1.0037` | `1.0208` | `1.0131` | rejected; scale `0.4` latency failed |
+
+Decision:
+
+- No T6.8 code change is retained.
+- The best rejected single-scale result was decode burst `2`, but it traded scale `1.0` E2E latency for scale `0.4` gains, so it failed the all-scale acceptance policy.
+- Next work should avoid broad scheduler priority changes and instead target a more local source of latency variance, such as output token readback lifetime management or specific metadata-copy call sites.
 
 ### T1.1 Ring-buffer FlashInfer pinned metadata workspace
 

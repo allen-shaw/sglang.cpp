@@ -385,3 +385,111 @@ Conclusion:
 - T6.3 graph `1..80,96,112,128` is the best measured runtime configuration so far, improving scale `0.4` from `0.9966` to `0.9977`, but it still does not satisfy the final `>1.0` throughput gate.
 - T5.6 and T5.2 should not be stacked by default; both failed the scale `0.4` decision criterion when combined with T6.0/T6.3.
 - The remaining gap is now too small for broad host-copy guesses. Next work should collect a focused `nsys` comparison at scale `0.4` using the T6.3 config and inspect the residual host/API difference.
+
+## T6.7 Focused Scale 0.4 Profile
+
+Release verification before profiling:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j$(nproc)
+grep 'CMAKE_BUILD_TYPE:STRING=Release' build/CMakeCache.txt
+```
+
+Focused `nsys` was collected with the current best runtime configuration:
+
+- T6.0 retained code: fused Q/K RMSNorm + `narrow` in attention.
+- CUDA graph enabled with batch sizes `1..80,96,112,128`.
+- Online `/generate`, scale `0.4`, `256` requests, same synthetic traces for `sglang.cpp` and mini-sglang.
+- Artifacts: `docs/profile/nsys/scale04_t6_3/`.
+
+Observed online result under `nsys`:
+
+| scale | req/tok ratio | avg E2E ratio | p90 E2E ratio |
+|---:|---:|---:|---:|
+| 0.4 | 1.0039 | 1.0187 | 1.0092 |
+
+The focused profile changes the absolute ratios versus the earlier non-profiled T6.3 benchmark, but it exposes the same shape: throughput is close to or slightly above mini, while request latency remains worse.
+
+Top CUDA API deltas:
+
+| API | sglang.cpp total / calls | mini total / calls | readout |
+|---|---:|---:|---|
+| `cudaEventSynchronize` | `6180 ms / 5737` | `5383 ms / 1700` | sglang.cpp has many more event waits and about `+797 ms` total API wait |
+| `cudaMemcpyAsync` | `543 ms / 18840` | `77 ms / 14401` | sglang.cpp has much higher host-side async copy API cost |
+| `cudaStreamSynchronize` | `179 ms / 1121` | not top item | extra explicit stream/event wait path in sglang.cpp |
+| `cudaGraphLaunch` | `55 ms / 655` | `52 ms / 703` | graph launch itself is not the primary gap |
+
+Top GPU kernel comparison:
+
+| area | sglang.cpp | mini | readout |
+|---|---:|---:|---|
+| total top kernel time represented by `cuda_gpu_kern_sum` | about `2037 ms` | about `2081 ms` | sglang.cpp is not slower overall on GPU kernels in this run |
+| FlashInfer prefill attention | `298.2 ms / 4032` | `295.4 ms / 4116` | comparable |
+| SiLU activation | `39.9 ms / 4032` | `39.8 ms / 4116` | comparable |
+| rotary | `47.7 ms / 4032` | `27.0 ms / 4116` | sglang.cpp rotary remains a local GPU gap, but total size is too small to explain the E2E latency gap alone |
+| Q/K RMSNorm | `35.8 ms / 4032` fused kernel | `26.2 ms / 8232` FlashInfer kernels | retained fused path reduces launch count, but per-token total is not a clear latency blocker |
+
+GPU memory operation time:
+
+| operation | sglang.cpp | mini | readout |
+|---|---:|---:|---|
+| H2D memcpy device time | `7.3 ms / 12526` | `13.3 ms / 9297` | device copy time is not the problem |
+| D2D memcpy device time | `5.7 ms / 5330` | `19.7 ms / 4254` | sglang.cpp is lower |
+| D2H memcpy device time | `0.9 ms / 984` | `0.8 ms / 850` | negligible difference |
+
+Internal `SGLANG_CPP_PROFILE=1` on the same T6.3 scale `0.4` shape:
+
+| metric at 768 scheduler steps | avg us |
+|---|---:|
+| `avg_total_us` | `10066.6` |
+| `avg_schedule_us` | `252.2` |
+| `avg_prepare_us` | `774.9` |
+| `avg_forward_us` | `890.3` |
+| `avg_engine_us` | `874.0` |
+| `avg_process_us` | `4916.9` |
+| `avg_process_sync_us` | `4830.6` |
+| `avg_process_host_us` | `85.7` |
+| `avg_batch_size` | `45.7` |
+
+Conclusion:
+
+- The scale `0.4` bottleneck is not a single slow model kernel. The engine's GPU math kernels are broadly aligned with mini-sglang, and total GPU kernel time is slightly lower in this focused run.
+- The dominant remaining cost is host/API synchronization around decode progress: `process_forward_output()` waits on the output-copy CUDA event, and the profile shows `avg_process_sync_us` at roughly `4.8 ms` per scheduler step.
+- sglang.cpp also pays higher CUDA API overhead for metadata/update paths: `cudaMemcpyAsync` API time is much higher despite low device memcpy time, indicating host-side tensor/copy launch overhead rather than PCIe bandwidth.
+- At scale `0.4`, the system is now trading latency for throughput. sglang.cpp launches fewer graph replays than mini in the profile (`655` vs `703`) and has lower total GPU kernel time, but worse avg/p90 E2E. That points to batching/synchronization policy rather than operator throughput.
+
+Next optimization targets:
+
+1. Add a scale `0.4` latency-oriented scheduler policy probe that caps or flushes decode batching under low pressure, then require it to preserve scale `0.8` and `1.0` throughput.
+2. Reduce per-step output readback synchronization cost by reusing pinned CPU next-token buffers safely or by narrowing the synchronized payload/path without extending buffer lifetime unsafely.
+3. Reduce FlashInfer metadata host API pressure by consolidating H2D updates or avoiding event synchronization on already-completed workspace slots.
+4. Treat rotary as a secondary kernel target only after host/API changes, because its total delta is too small to explain the observed E2E issue alone.
+
+## T6.8 Scale 0.4 Latency Probes
+
+All T6.8 probes used Release builds and the T6.3 graph config `1..80,96,112,128`.
+
+| probe | scale 0.4 req/tok | scale 0.4 avg | scale 0.4 p90 | decision |
+|---|---:|---:|---:|---|
+| disable overlap scheduling | `0.9876` | `1.0377` | `1.0286` | reject |
+| FlashInfer workspace event `query()` before `synchronize()` | `1.0010` | `1.0221` | `1.0117` | reject |
+| ready-first overlap processing | `1.0079` | `1.0064` | `1.0054` | reject |
+| non-chunked decode burst `2` | `1.0164` | `0.9973` | `0.9942` | reject after all-scale run |
+| low-pressure decode burst, batch limit `64` | `1.0132` | `1.0044` | `0.9981` | reject |
+| low-pressure decode burst, batch limit `48` | `1.0167` | `0.9983` | `0.9959` | reject after all-scale run |
+| low-pressure decode burst, batch limit `32` | `1.0109` | `1.0113` | `1.0066` | reject |
+| low-pressure decode burst, batch limit `40` | `1.0037` | `1.0208` | `1.0131` | reject |
+
+All-scale checks for the two promising decode-burst probes:
+
+| probe | scale 0.4 req/tok | scale 0.8 req/tok | scale 1.0 req/tok | scale 0.4 avg | scale 0.8 avg | scale 1.0 avg | decision |
+|---|---:|---:|---:|---:|---:|---:|---|
+| decode burst `2` | `1.0167` | `1.0174` | `1.0132` | `0.9947` | `0.9952` | `1.0058` | rejected; scale `1.0` avg/p90 regressed |
+| decode burst `2`, batch limit `48` | `1.0167` | `1.0084` | `1.0093` | `0.9983` | `1.0127` | `1.0196` | rejected; scale `0.8` and `1.0` avg regressed |
+
+Conclusion:
+
+- The scheduler priority direction is real but too blunt: it can make scale `0.4` pass in isolation, but it shifts latency to higher scales.
+- No T6.8 code change is retained.
+- The next useful target should be narrower than request-level priority, ideally reducing output readback or metadata update overhead without changing admission order.
