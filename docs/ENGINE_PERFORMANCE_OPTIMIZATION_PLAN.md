@@ -123,9 +123,18 @@ After every optimization phase, save artifacts under `docs/profile/round-N/`.
 Build and correctness:
 
 ```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ctest --test-dir build --output-on-failure
 ```
+
+Performance runs after T4.0 must be Release-only. Before running `compare_with_minisgl.py`, `nsys`, `ncu`, `perf`, or any other benchmark/profile command for an optimization decision, verify:
+
+```bash
+grep 'CMAKE_BUILD_TYPE:STRING=Release' build/CMakeCache.txt
+```
+
+If the active build is not Release, reconfigure and rebuild first. Debug benchmark/profile results are diagnostic only and must not be used to accept or reject a performance optimization. Every post-T4.0 task note must record the Release verification line or explicitly mark the run as diagnostic.
 
 Key correctness tests:
 
