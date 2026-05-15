@@ -88,6 +88,7 @@ set(SGLANG_CORE_SRCS
     src/core/sampling_params.cc
     src/utils/tensor_utils.cc
     src/message/message.cc
+    src/distributed/distributed.cc
     src/kernels/radix.cc
     src/kernels/token_pool.cu
     src/kvcache/radix_tree.cc
@@ -192,6 +193,11 @@ add_test(NAME TestSamplingParams COMMAND test_sampling_params)
 add_executable(test_tensor_utils tests/utils/test_tensor_utils.cpp)
 target_link_libraries(test_tensor_utils PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestTensorUtils COMMAND test_tensor_utils)
+
+# Distributed tests
+add_executable(test_distributed tests/distributed/test_distributed.cpp)
+target_link_libraries(test_distributed PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestDistributed COMMAND test_distributed)
 
 # Message tests
 add_executable(test_message tests/message/test_message.cpp)

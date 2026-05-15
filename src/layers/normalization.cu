@@ -169,6 +169,61 @@ __global__ void fused_qk_rmsnorm_3d_strided_vec_kernel(
     }
 }
 
+template <typename scalar_t>
+__global__ void fused_qk_rmsnorm_3d_strided_kernel(
+    scalar_t* __restrict__ q,
+    scalar_t* __restrict__ k,
+    const scalar_t* __restrict__ q_weight,
+    const scalar_t* __restrict__ k_weight,
+    int64_t tokens,
+    int64_t q_heads,
+    int64_t k_heads,
+    int64_t d,
+    int64_t q_stride_token,
+    int64_t q_stride_head,
+    int64_t k_stride_token,
+    int64_t k_stride_head,
+    float eps) {
+    const int64_t q_rows = tokens * q_heads;
+    const int64_t total_rows = q_rows + tokens * k_heads;
+    const int64_t job = static_cast<int64_t>(blockIdx.x) * blockDim.y + threadIdx.y;
+    if (job >= total_rows) {
+        return;
+    }
+
+    scalar_t* row_ptr = nullptr;
+    const scalar_t* weight = nullptr;
+    if (job < q_rows) {
+        const int64_t token = job / q_heads;
+        const int64_t head = job - token * q_heads;
+        row_ptr = q + token * q_stride_token + head * q_stride_head;
+        weight = q_weight;
+    } else {
+        const int64_t k_job = job - q_rows;
+        const int64_t token = k_job / k_heads;
+        const int64_t head = k_job - token * k_heads;
+        row_ptr = k + token * k_stride_token + head * k_stride_head;
+        weight = k_weight;
+    }
+
+    float sum_sq = 0.0f;
+    for (int64_t i = threadIdx.x; i < d; i += warpSize) {
+        const float val = static_cast<float>(row_ptr[i]);
+        sum_sq += val * val;
+    }
+
+    for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
+        sum_sq += __shfl_xor_sync(0xffffffff, sum_sq, offset);
+    }
+
+    const float scale = rsqrtf(sum_sq / static_cast<float>(d) + eps);
+    for (int64_t i = threadIdx.x; i < d; i += warpSize) {
+        const float val = static_cast<float>(row_ptr[i]);
+        const float w = static_cast<float>(weight[i]);
+        row_ptr[i] = static_cast<scalar_t>(val * scale * w);
+    }
+}
+
 }  // namespace
 
 RMSNorm::RMSNorm(int size, float eps) : eps_(eps) {
@@ -287,24 +342,43 @@ void fused_qk_rmsnorm_inplace_3d_strided(torch::Tensor& q,
     dim3 blocks((total_rows + kWarpsPerBlock - 1) / kWarpsPerBlock);
     dim3 threads(32, kWarpsPerBlock);
     constexpr uint32_t kVecSize = 8;
-    TORCH_CHECK(d % kVecSize == 0, "Fused QK RMSNorm requires vectorizable head_dim");
     TORCH_CHECK(q_norm.eps() == k_norm.eps(), "Q and K RMSNorm eps must match");
     if (q.scalar_type() == torch::kFloat16) {
-        fused_qk_rmsnorm_3d_strided_vec_kernel<half, kVecSize><<<blocks, threads, 0, stream>>>(
-            reinterpret_cast<half*>(q.data_ptr<at::Half>()),
-            reinterpret_cast<half*>(k.data_ptr<at::Half>()),
-            reinterpret_cast<half*>(q_norm.weight.data_ptr<at::Half>()),
-            reinterpret_cast<half*>(k_norm.weight.data_ptr<at::Half>()),
-            tokens, q_heads, k_heads, d,
-            q.stride(0), q.stride(1), k.stride(0), k.stride(1), q_norm.eps());
+        if (d % kVecSize == 0) {
+            fused_qk_rmsnorm_3d_strided_vec_kernel<half, kVecSize><<<blocks, threads, 0, stream>>>(
+                reinterpret_cast<half*>(q.data_ptr<at::Half>()),
+                reinterpret_cast<half*>(k.data_ptr<at::Half>()),
+                reinterpret_cast<half*>(q_norm.weight.data_ptr<at::Half>()),
+                reinterpret_cast<half*>(k_norm.weight.data_ptr<at::Half>()),
+                tokens, q_heads, k_heads, d,
+                q.stride(0), q.stride(1), k.stride(0), k.stride(1), q_norm.eps());
+        } else {
+            fused_qk_rmsnorm_3d_strided_kernel<half><<<blocks, threads, 0, stream>>>(
+                reinterpret_cast<half*>(q.data_ptr<at::Half>()),
+                reinterpret_cast<half*>(k.data_ptr<at::Half>()),
+                reinterpret_cast<half*>(q_norm.weight.data_ptr<at::Half>()),
+                reinterpret_cast<half*>(k_norm.weight.data_ptr<at::Half>()),
+                tokens, q_heads, k_heads, d,
+                q.stride(0), q.stride(1), k.stride(0), k.stride(1), q_norm.eps());
+        }
     } else {
-        fused_qk_rmsnorm_3d_strided_vec_kernel<nv_bfloat16, kVecSize><<<blocks, threads, 0, stream>>>(
-            reinterpret_cast<nv_bfloat16*>(q.data_ptr<at::BFloat16>()),
-            reinterpret_cast<nv_bfloat16*>(k.data_ptr<at::BFloat16>()),
-            reinterpret_cast<nv_bfloat16*>(q_norm.weight.data_ptr<at::BFloat16>()),
-            reinterpret_cast<nv_bfloat16*>(k_norm.weight.data_ptr<at::BFloat16>()),
-            tokens, q_heads, k_heads, d,
-            q.stride(0), q.stride(1), k.stride(0), k.stride(1), q_norm.eps());
+        if (d % kVecSize == 0) {
+            fused_qk_rmsnorm_3d_strided_vec_kernel<nv_bfloat16, kVecSize><<<blocks, threads, 0, stream>>>(
+                reinterpret_cast<nv_bfloat16*>(q.data_ptr<at::BFloat16>()),
+                reinterpret_cast<nv_bfloat16*>(k.data_ptr<at::BFloat16>()),
+                reinterpret_cast<nv_bfloat16*>(q_norm.weight.data_ptr<at::BFloat16>()),
+                reinterpret_cast<nv_bfloat16*>(k_norm.weight.data_ptr<at::BFloat16>()),
+                tokens, q_heads, k_heads, d,
+                q.stride(0), q.stride(1), k.stride(0), k.stride(1), q_norm.eps());
+        } else {
+            fused_qk_rmsnorm_3d_strided_kernel<nv_bfloat16><<<blocks, threads, 0, stream>>>(
+                reinterpret_cast<nv_bfloat16*>(q.data_ptr<at::BFloat16>()),
+                reinterpret_cast<nv_bfloat16*>(k.data_ptr<at::BFloat16>()),
+                reinterpret_cast<nv_bfloat16*>(q_norm.weight.data_ptr<at::BFloat16>()),
+                reinterpret_cast<nv_bfloat16*>(k_norm.weight.data_ptr<at::BFloat16>()),
+                tokens, q_heads, k_heads, d,
+                q.stride(0), q.stride(1), k.stride(0), k.stride(1), q_norm.eps());
+        }
     }
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 }

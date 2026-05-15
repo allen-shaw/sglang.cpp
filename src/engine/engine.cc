@@ -96,6 +96,32 @@ bool contains_token(const std::string& haystack, const std::string& needle) {
     return haystack.find(needle) != std::string::npos;
 }
 
+std::optional<int> read_optional_env_int(const char* name) {
+    const char* raw = std::getenv(name);
+    if (!raw || std::string(raw).empty()) {
+        return std::nullopt;
+    }
+    return std::stoi(raw);
+}
+
+torch::Device resolve_engine_device(const torch::Device& configured_device) {
+    if (!configured_device.is_cuda()) {
+        return configured_device;
+    }
+    if (auto local_rank = read_optional_env_int("SGLANG_TP_LOCAL_RANK")) {
+        return torch::Device(torch::kCUDA, *local_rank);
+    }
+    const int world_size =
+        read_optional_env_int("SGLANG_TP_SIZE")
+            .value_or(read_optional_env_int("WORLD_SIZE").value_or(1));
+    if (world_size > 1 && configured_device.index() <= 0) {
+        if (auto local_rank = read_optional_env_int("LOCAL_RANK")) {
+            return torch::Device(torch::kCUDA, *local_rank);
+        }
+    }
+    return configured_device;
+}
+
 torch::Tensor sample_row(torch::Tensor logits,
                          float temperature,
                          int32_t top_k,
@@ -385,9 +411,9 @@ int Engine::determine_num_pages(const EngineConfig& config,
 Engine::Engine(const EngineConfig& config)
     : config_(config),
       model_config_(config.load_model_config()),
-      device_(config.device),
+      device_(resolve_engine_device(config.device)),
       dtype_(config.dtype),
-      sampler_(config.device, model_config_.vocab_size),
+      sampler_(device_, model_config_.vocab_size),
       stream_(c10::cuda::getStreamFromPool(/*isHighPriority=*/false, device_.index())) {
     TORCH_CHECK(torch::cuda::is_available(), "CUDA is required for Engine");
     TORCH_CHECK(device_.is_cuda(), "Engine only supports CUDA devices");
@@ -404,7 +430,7 @@ Engine::Engine(const EngineConfig& config)
     } else {
         TORCH_CHECK(!config_.model_path.empty(),
                     "model_path is required when use_dummy_weight=false");
-        WeightLoader::load_weights(*model_runner_.module, config_.model_path, dtype_, device_);
+        WeightLoader::load_weights(*model_runner_.module, config_.model_path, dtype_, device_, &model_config_);
     }
 
     num_pages_ = determine_num_pages(config_, model_config_);

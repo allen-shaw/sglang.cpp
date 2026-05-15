@@ -73,7 +73,8 @@ MoEMLP::MoEMLP(const ModelConfig& config) {
             config.num_experts_per_tok,
             config.hidden_size,
             config.moe_intermediate_size,
-            config.norm_topk_prob
+            config.norm_topk_prob,
+            config.hidden_act
         )
     );
 }

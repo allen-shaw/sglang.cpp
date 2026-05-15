@@ -1,9 +1,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <stdexcept>
 
+#include "sglang/distributed/distributed.h"
 #include "sglang/engine/engine.h"
 #include "sglang/scheduler/prefill.h"
 
@@ -12,13 +15,14 @@ namespace {
 
 ModelConfig make_test_model_config() {
   ModelConfig config;
+  const int tensor_parallel_size = tp_size();
   config.num_layers = 1;
-  config.num_qo_heads = 1;
-  config.num_kv_heads = 1;
+  config.num_qo_heads = tensor_parallel_size;
+  config.num_kv_heads = tensor_parallel_size;
   config.head_dim = 128;
-  config.hidden_size = 128;
+  config.hidden_size = config.num_qo_heads * config.head_dim;
   config.vocab_size = 64;
-  config.intermediate_size = 256;
+  config.intermediate_size = 2 * config.hidden_size;
   config.rms_norm_eps = 1e-5F;
   config.rotary_config = RotaryConfig{128, 128, 32, 10000.0F};
   config.hidden_act = "silu";
@@ -33,6 +37,31 @@ ModelConfig make_test_model_config() {
   return config;
 }
 
+ModelConfig make_test_qwen3_moe_model_config() {
+  auto config = make_test_model_config();
+  config.model_type = "qwen3_moe";
+  config.architectures = {"Qwen3MoeForCausalLM"};
+  config.num_experts = 4;
+  config.num_experts_per_tok = 2;
+  config.moe_intermediate_size = 64;
+  config.norm_topk_prob = true;
+  return config;
+}
+
+std::string find_qwen3_moe_model_path() {
+  const char* env_path = std::getenv("QWEN3_MOE_MODEL_PATH");
+  if (env_path && std::filesystem::exists(std::string(env_path) + "/config.json")) {
+    return std::string(env_path);
+  }
+
+  const std::string downloaded = "/root/workspace/models/tiny-Qwen3MoeForCausalLM";
+  if (std::filesystem::exists(downloaded + "/config.json")) {
+    return downloaded;
+  }
+
+  return "";
+}
+
 EngineConfig make_test_engine_config() {
   EngineConfig config;
   config.dtype = torch::kBFloat16;
@@ -45,6 +74,27 @@ EngineConfig make_test_engine_config() {
   config.max_seq_len_override = 32;
   config.num_pages_override = 32;
   config.model_config_override = make_test_model_config();
+  return config;
+}
+
+EngineConfig make_test_qwen3_moe_engine_config() {
+  auto config = make_test_engine_config();
+  config.model_config_override = make_test_qwen3_moe_model_config();
+  return config;
+}
+
+EngineConfig make_real_tiny_qwen3_moe_engine_config(const std::string& model_path) {
+  EngineConfig config;
+  config.model_path = model_path;
+  config.dtype = torch::kBFloat16;
+  config.device = torch::Device(torch::kCUDA, 0);
+  config.max_running_req = 4;
+  config.page_size = 1;
+  config.memory_ratio = 0.01F;
+  config.use_dummy_weight = false;
+  config.enable_cuda_graph = false;
+  config.max_seq_len_override = 16;
+  config.num_pages_override = 32;
   return config;
 }
 
@@ -69,6 +119,10 @@ bool is_cuda_oom(const std::exception& error) {
   return message.find("out of memory") != std::string::npos ||
          message.find("CUDA error: out of memory") != std::string::npos ||
          message.find("CUDA out of memory") != std::string::npos;
+}
+
+bool is_flashinfer_attention_supported_head_dim(int head_dim) {
+  return head_dim == 64 || head_dim == 128 || head_dim == 256 || head_dim == 512;
 }
 
 std::shared_ptr<Req> make_req(uint64_t req_id,
@@ -214,6 +268,91 @@ TEST(EngineE2ETest, SingleRequestRunsToCompletion) {
   EXPECT_EQ(req->cached_len, 5);
   EXPECT_EQ(req->device_len(), 6);
   EXPECT_EQ(req->max_device_len(), 6);
+  EXPECT_FALSE(req->can_decode());
+}
+
+TEST(EngineE2ETest, Qwen3MoESingleRequestRunsToCompletion) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for Qwen3-MOE Engine E2E test";
+  }
+
+  Engine engine(make_test_qwen3_moe_engine_config());
+  TableManager table_manager(/*max_running_reqs=*/4, engine.page_table());
+  CacheManager cache_manager(engine.num_pages(), /*page_size=*/1, engine.page_table(), "radix");
+
+  auto req = make_req(/*req_id=*/125, table_manager.allocate(), {3, 5, 7}, /*max_new_tokens=*/3);
+  copy_prompt_to_pool(table_manager, *req);
+
+  bool first_step = true;
+  while (true) {
+    Batch batch;
+    batch.reqs = {req};
+    batch.phase = first_step ? BatchPhase::Prefill : BatchPhase::Decode;
+    auto prepared = prepare_batch(engine, table_manager, cache_manager, batch);
+
+    auto sampling_args = engine.prepare_sampling_args(batch);
+    auto output = engine.forward_batch(batch, sampling_args);
+    output.synchronize();
+    write_next_tokens_to_pool(output, prepared, table_manager);
+
+    auto next_token = output.next_tokens_cpu[0].to(torch::kInt32).reshape({1});
+    req->append_host(next_token);
+    if (!req->can_decode()) {
+      break;
+    }
+    first_step = false;
+  }
+
+  EXPECT_EQ(req->input_ids.size(0), 6);
+  EXPECT_EQ(req->device_len(), 6);
+  EXPECT_FALSE(req->can_decode());
+}
+
+TEST(EngineE2ETest, RealTinyQwen3MoESingleRequestRunsToCompletion) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for real Qwen3-MOE Engine E2E test";
+  }
+
+  const auto model_path = find_qwen3_moe_model_path();
+  if (model_path.empty()) {
+    GTEST_SKIP() << "Qwen3-MOE model path not found. Set QWEN3_MOE_MODEL_PATH";
+  }
+
+  auto model_config = ModelConfig::from_json_file(model_path + "/config.json");
+  if (!is_flashinfer_attention_supported_head_dim(model_config.head_dim)) {
+    GTEST_SKIP() << "Downloaded tiny Qwen3-MOE has head_dim=" << model_config.head_dim
+                 << ", which FlashInfer attention does not support for E2E";
+  }
+
+  Engine engine(make_real_tiny_qwen3_moe_engine_config(model_path));
+  TableManager table_manager(/*max_running_reqs=*/4, engine.page_table());
+  CacheManager cache_manager(engine.num_pages(), /*page_size=*/1, engine.page_table(), "radix");
+
+  auto req = make_req(/*req_id=*/126, table_manager.allocate(), {3, 5, 7}, /*max_new_tokens=*/2);
+  copy_prompt_to_pool(table_manager, *req);
+
+  bool first_step = true;
+  while (true) {
+    Batch batch;
+    batch.reqs = {req};
+    batch.phase = first_step ? BatchPhase::Prefill : BatchPhase::Decode;
+    auto prepared = prepare_batch(engine, table_manager, cache_manager, batch);
+
+    auto sampling_args = engine.prepare_sampling_args(batch);
+    auto output = engine.forward_batch(batch, sampling_args);
+    output.synchronize();
+    write_next_tokens_to_pool(output, prepared, table_manager);
+
+    auto next_token = output.next_tokens_cpu[0].to(torch::kInt32).reshape({1});
+    req->append_host(next_token);
+    if (!req->can_decode()) {
+      break;
+    }
+    first_step = false;
+  }
+
+  EXPECT_EQ(req->input_ids.size(0), 5);
+  EXPECT_EQ(req->device_len(), 5);
   EXPECT_FALSE(req->can_decode());
 }
 

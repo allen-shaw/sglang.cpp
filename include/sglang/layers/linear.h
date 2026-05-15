@@ -15,6 +15,11 @@ class LinearBase : public torch::nn::Module {
     torch::Tensor bias;
     bool has_bias_;
 
+    int full_input_size() const { return full_input_size_; }
+    int full_output_size() const { return full_output_size_; }
+    int local_input_size() const { return local_input_size_; }
+    int local_output_size() const { return local_output_size_; }
+
  protected:
     int full_input_size_;
     int full_output_size_;
@@ -30,6 +35,11 @@ class LinearReplicated : public LinearBase {
 class LinearColParallelMerged : public LinearBase {
  public:
     LinearColParallelMerged(int input_size, const std::vector<int>& output_sizes, bool has_bias);
+    const std::vector<int>& output_sizes() const { return output_sizes_; }
+
+ private:
+    std::vector<int> output_sizes_;
+    std::vector<int> local_output_sizes_;
 };
 
 class LinearRowParallel : public LinearBase {
@@ -41,6 +51,19 @@ class LinearRowParallel : public LinearBase {
 class LinearQKVMerged : public LinearBase {
  public:
     LinearQKVMerged(int hidden_size, int head_dim, int num_qo_heads, int num_kv_heads, bool has_bias);
+
+    int head_dim() const { return head_dim_; }
+    int num_qo_heads() const { return num_qo_heads_; }
+    int num_kv_heads() const { return num_kv_heads_; }
+    int local_num_qo_heads() const { return local_num_qo_heads_; }
+    int local_num_kv_heads() const { return local_num_kv_heads_; }
+
+ private:
+    int head_dim_;
+    int num_qo_heads_;
+    int num_kv_heads_;
+    int local_num_qo_heads_;
+    int local_num_kv_heads_;
 };
 
 class LinearOProj : public LinearBase {

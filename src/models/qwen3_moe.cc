@@ -3,7 +3,7 @@
 namespace sglang {
 
 Qwen3MoEDecoderLayer::Qwen3MoEDecoderLayer(const ModelConfig& config, int layer_id) {
-    self_attn_ = register_module("self_attn", std::make_shared<RopeAttn>(config, layer_id, true, false));
+    self_attn_ = register_module("self_attn", std::make_shared<RopeAttn>(config, layer_id, false, true));
     mlp_ = register_module("mlp", std::make_shared<MoEMLP>(config));
     input_layernorm_ = register_module(
         "input_layernorm", std::make_shared<RMSNorm>(config.hidden_size, config.rms_norm_eps));
@@ -11,18 +11,20 @@ Qwen3MoEDecoderLayer::Qwen3MoEDecoderLayer(const ModelConfig& config, int layer_
         "post_attention_layernorm", std::make_shared<RMSNorm>(config.hidden_size, config.rms_norm_eps));
 }
 
-torch::Tensor Qwen3MoEDecoderLayer::forward(torch::Tensor x, const torch::Tensor& positions) {
-    auto residual = x;
-    auto x_norm = input_layernorm_->forward(x);
-    auto attn_out = self_attn_->forward(x_norm, positions);
-    x = residual + attn_out;
+std::pair<torch::Tensor, torch::Tensor> Qwen3MoEDecoderLayer::forward(
+    torch::Tensor x, const torch::Tensor& positions, torch::Tensor residual) {
+    if (residual.defined()) {
+        input_layernorm_->fused_add_forward_inplace(x, residual);
+    } else {
+        residual = x;
+        x = input_layernorm_->forward(x);
+    }
 
-    residual = x;
-    x_norm = post_attention_layernorm_->forward(x);
-    auto mlp_out = mlp_->forward(x_norm);
-    x = residual + mlp_out;
+    auto attn_out = self_attn_->forward(x, positions);
+    post_attention_layernorm_->fused_add_forward_inplace(attn_out, residual);
 
-    return x;
+    x = mlp_->forward(attn_out);
+    return {x, residual};
 }
 
 Qwen3MoEModel::Qwen3MoEModel(const ModelConfig& config) {
@@ -44,8 +46,13 @@ Qwen3MoEModel::Qwen3MoEModel(const ModelConfig& config) {
 
 torch::Tensor Qwen3MoEModel::forward(const torch::Tensor& input_ids, const torch::Tensor& positions) {
     auto x = embed_tokens_->forward(input_ids);
+    torch::Tensor residual;
     for (auto& layer : layers_) {
-        x = layer->forward(x, positions);
+        std::tie(x, residual) = layer->forward(x, positions, residual);
+    }
+    if (residual.defined()) {
+        norm_->fused_add_forward_inplace(x, residual);
+        return x;
     }
     return norm_->forward(x);
 }

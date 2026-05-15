@@ -1,15 +1,14 @@
 #include "sglang/layers/attention_layer.h"
 #include "sglang/core/context.h"
+#include "sglang/distributed/distributed.h"
 
 namespace sglang {
 
 AttentionLayer::AttentionLayer(int layer_id, int num_qo_heads, int num_kv_heads, int head_dim,
                                RotaryEmbedding* rotary, RMSNorm* q_norm, RMSNorm* k_norm)
     : layer_id_(layer_id), head_dim_(head_dim), rotary_(rotary), q_norm_(q_norm), k_norm_(k_norm) {
-    
-    int tp_size = 1; // FIXME: distributed
-    num_qo_heads_ = num_qo_heads / tp_size;
-    num_kv_heads_ = num_kv_heads / tp_size; // FIXME: allow replicate
+    num_qo_heads_ = divide_even(num_qo_heads, tp_size(), "num_qo_heads");
+    num_kv_heads_ = divide_even(num_kv_heads, tp_size(), "num_kv_heads");
     
     qo_attn_dim_ = num_qo_heads_ * head_dim;
     kv_attn_dim_ = num_kv_heads_ * head_dim;
