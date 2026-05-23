@@ -14,6 +14,7 @@ shift 3
 master_addr="${SGLANG_TP_MASTER_ADDR:-127.0.0.1}"
 master_port="${SGLANG_TP_MASTER_PORT:-29500}"
 log_dir="${SGLANG_TP_LOG_DIR:-/tmp/sglang_tp_${tp_size}_$(date -u +%Y%m%d_%H%M%S)}"
+nccl_id_file="${SGLANG_TP_NCCL_ID_FILE:-$log_dir/nccl_unique_id}"
 
 mkdir -p "$log_dir"
 
@@ -38,6 +39,7 @@ for rank in $(seq 0 $((tp_size - 1))); do
     export MASTER_PORT="$master_port"
     export SGLANG_TP_MASTER_ADDR="$master_addr"
     export SGLANG_TP_MASTER_PORT="$master_port"
+    export SGLANG_TP_NCCL_ID_FILE="$nccl_id_file"
     exec "$test_binary" --gtest_filter="$gtest_filter" --gtest_color=no "$@"
   ) >"$log_file" 2>&1 &
   pids+=("$!")

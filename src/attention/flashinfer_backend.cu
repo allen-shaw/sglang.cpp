@@ -13,6 +13,7 @@
 #include <flashinfer/attention/prefill.cuh>
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
 
 using namespace flashinfer;
@@ -191,6 +192,7 @@ void FlashInferBackend::ensure_decode_workspace(int bs, int64_t total_kv_len) {
 
 void FlashInferBackend::init_capture_graph(int max_seq_len,
                                            const std::vector<int>& bs_list) {
+    c10::cuda::OptionalCUDAGuard device_guard(kv_cache_->device());
     decode_capture_.reset();
     if (bs_list.empty()) {
         return;
@@ -225,6 +227,7 @@ std::shared_ptr<FlashInferAttnMetadata> FlashInferBackend::get_capture_metadata(
 }
 
 void FlashInferBackend::prepare_for_capture(Batch& batch) {
+    c10::cuda::OptionalCUDAGuard device_guard(kv_cache_->device());
     TORCH_CHECK(batch.is_decode(), "FlashInfer capture only supports decode batches");
     TORCH_CHECK(decode_capture_, "Decode capture state is not initialized");
     const int batch_size = batch.padded_size();
@@ -262,6 +265,7 @@ void FlashInferBackend::prepare_for_capture(Batch& batch) {
 }
 
 void FlashInferBackend::prepare_for_replay(Batch& batch) {
+    c10::cuda::OptionalCUDAGuard device_guard(kv_cache_->device());
     TORCH_CHECK(batch.is_decode(), "FlashInfer replay only supports decode batches");
     auto metadata = std::dynamic_pointer_cast<FlashInferAttnMetadata>(batch.attn_metadata);
     TORCH_CHECK(metadata, "FlashInfer replay requires FlashInferAttnMetadata");
@@ -349,6 +353,7 @@ void FlashInferBackend::prepare_for_replay(Batch& batch) {
 
 void FlashInferBackend::initialize_decode_metadata_once(FlashInferAttnMetadata& metadata,
                                                         int batch_size) {
+    c10::cuda::OptionalCUDAGuard device_guard(kv_cache_->device());
     if (metadata.initialized) {
         return;
     }
@@ -392,6 +397,7 @@ void FlashInferBackend::initialize_decode_metadata_once(FlashInferAttnMetadata& 
 }
 
 void FlashInferBackend::prepare_metadata(Batch& batch) {
+    c10::cuda::OptionalCUDAGuard device_guard(kv_cache_->device());
     auto metadata = std::make_shared<FlashInferAttnMetadata>();
     metadata->is_prefill = batch.is_prefill();
 
@@ -517,6 +523,7 @@ torch::Tensor FlashInferBackend::forward(const torch::Tensor& q,
                                          const torch::Tensor& k,
                                          const torch::Tensor& v, int layer_id,
                                          Batch& batch) {
+    c10::cuda::OptionalCUDAGuard device_guard(kv_cache_->device());
     auto meta = std::dynamic_pointer_cast<FlashInferAttnMetadata>(batch.attn_metadata);
     TORCH_CHECK(meta, "FlashInferBackend requires FlashInferAttnMetadata");
 

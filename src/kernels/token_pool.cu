@@ -2,6 +2,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAGuard.h>
 
 namespace sglang {
 namespace {
@@ -75,9 +76,10 @@ void write_token_pool(const torch::Tensor& token_pool,
     return;
   }
 
+  c10::cuda::OptionalCUDAGuard device_guard(token_pool.device());
   constexpr int threads = 256;
   const int blocks = static_cast<int>((count + threads - 1) / threads);
-  auto stream = at::cuda::getCurrentCUDAStream();
+  auto stream = at::cuda::getCurrentCUDAStream(token_pool.device().index());
   write_token_pool_kernel<<<blocks, threads, 0, stream>>>(
       token_pool.data_ptr<int32_t>(),
       token_pool.size(0),
@@ -113,9 +115,10 @@ torch::Tensor gather_int32_2d(const torch::Tensor& table,
     return output;
   }
 
+  c10::cuda::OptionalCUDAGuard device_guard(table.device());
   constexpr int threads = 256;
   const int blocks = static_cast<int>((count + threads - 1) / threads);
-  auto stream = at::cuda::getCurrentCUDAStream();
+  auto stream = at::cuda::getCurrentCUDAStream(table.device().index());
   gather_int32_2d_kernel<<<blocks, threads, 0, stream>>>(
       table.data_ptr<int32_t>(),
       table.size(0),

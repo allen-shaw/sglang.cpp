@@ -2,6 +2,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAGuard.h>
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 
@@ -139,6 +140,7 @@ void MHAKVCache::store_kv(const torch::Tensor& key, const torch::Tensor& val,
         return;
     }
 
+    c10::cuda::OptionalCUDAGuard device_guard(k_buf.device());
     if (k.scalar_type() == torch::kFloat16) {
         launch_store_kv_cache<half>(
             k_buf, v_buf, k, v, out_loc, num_tokens, elems_per_token,

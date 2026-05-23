@@ -18,6 +18,7 @@
 #include <torch/cuda.h>
 
 #include "sglang/attention/flashinfer_backend.h"
+#include "sglang/distributed/distributed.h"
 #include "sglang/engine/sampling.h"
 #include "sglang/kvcache/mha_kvcache.h"
 #include "sglang/models/llama.h"
@@ -400,7 +401,7 @@ int Engine::determine_num_pages(const EngineConfig& config,
 
     const size_t cache_per_page =
         2ULL * model_config.head_dim *
-        div_even(model_config.num_kv_heads, 1, /*allow_replicate=*/true) *
+        div_even(model_config.num_kv_heads, tp_size(), /*allow_replicate=*/false) *
         config.page_size * c10::elementSize(config.dtype) * model_config.num_layers;
     const size_t budget = static_cast<size_t>(free_memory * config.memory_ratio);
     int num_pages = static_cast<int>(budget / std::max<size_t>(cache_per_page, 1ULL));
@@ -440,7 +441,7 @@ Engine::Engine(const EngineConfig& config)
         torch::TensorOptions().dtype(torch::kInt32).device(device_));
 
     kv_cache_ = std::make_shared<MHAKVCache>(
-        model_config_.num_kv_heads,
+        divide_even(model_config_.num_kv_heads, tp_size(), "num_kv_heads"),
         model_config_.num_layers,
         model_config_.head_dim,
         num_pages_ + 1,
@@ -449,8 +450,8 @@ Engine::Engine(const EngineConfig& config)
         device_);
     attn_backend_ = std::make_shared<FlashInferBackend>(
         kv_cache_,
-        model_config_.num_qo_heads,
-        model_config_.num_kv_heads,
+        divide_even(model_config_.num_qo_heads, tp_size(), "num_qo_heads"),
+        divide_even(model_config_.num_kv_heads, tp_size(), "num_kv_heads"),
         model_config_.head_dim);
 
     ctx_ = std::make_shared<Context>(config_.page_size, attn_backend_);
@@ -555,6 +556,7 @@ void Engine::shutdown() {
 
 void Engine::prepare_attention_metadata(Batch& batch) {
     TORCH_CHECK(attn_backend_, "Engine attention backend is not initialized");
+    c10::cuda::CUDAStreamGuard stream_guard(stream_);
     attn_backend_->prepare_metadata(batch);
 }
 

@@ -1,14 +1,19 @@
 #include "sglang/models/weight_loader.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <future>
 #include <iostream>
 #include <map>
 #include <regex>
+#include <thread>
 #include <unordered_map>
 
 #include "sglang/distributed/distributed.h"
-#include "safetensors.hpp"
+#include <nlohmann/json.hpp>
 
 namespace sglang {
 
@@ -36,6 +41,14 @@ const std::unordered_map<std::string, std::string> SLOT_NAMES = {
 };
 
 const std::regex EXPERT_PATTERN(R"(^(.*\.experts)\.(\d+)\.(.+)$)");
+constexpr int64_t kFp8WeightBlockRows = 128;
+constexpr int64_t kFp8WeightBlockCols = 128;
+constexpr uint64_t kEstimatedFp8ShardLoadBytes = 48ULL * 1024ULL * 1024ULL * 1024ULL;
+
+struct LoadedShard {
+    std::string file;
+    std::unordered_map<std::string, torch::Tensor> merged;
+};
 
 bool get_merge_info(const std::string& key,
                     std::string& merged_key,
@@ -74,6 +87,111 @@ std::vector<std::string> find_safetensors_files(const std::string& dir) {
     return files;
 }
 
+uint64_t read_cgroup_memory_limit() {
+    std::ifstream input("/sys/fs/cgroup/memory.max");
+    if (!input) {
+        return 0;
+    }
+
+    std::string value;
+    input >> value;
+    if (value.empty() || value == "max") {
+        return 0;
+    }
+
+    try {
+        return std::stoull(value);
+    } catch (const std::exception&) {
+        return 0;
+    }
+}
+
+int parse_positive_env(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return 0;
+    }
+
+    try {
+        return std::max(0, std::stoi(value));
+    } catch (const std::exception&) {
+        return 0;
+    }
+}
+
+int determine_weight_load_parallelism(size_t num_files, int tp_size) {
+    if (num_files <= 1) {
+        return 1;
+    }
+
+    int env_parallelism = parse_positive_env("SGLANG_WEIGHT_LOAD_PARALLELISM");
+    if (env_parallelism > 0) {
+        return std::max(1, std::min<int>(env_parallelism, static_cast<int>(num_files)));
+    }
+
+    unsigned int hw_threads = std::max(1U, std::thread::hardware_concurrency());
+    int cpu_limited = std::max(1, static_cast<int>(hw_threads / std::max(1, tp_size * 24)));
+
+    int memory_limited = static_cast<int>(num_files);
+    uint64_t memory_limit = read_cgroup_memory_limit();
+    if (memory_limit > 0) {
+        memory_limited = std::max(
+            1,
+            static_cast<int>(memory_limit / (std::max(1, tp_size) * kEstimatedFp8ShardLoadBytes)));
+    }
+
+    return std::max(1, std::min<int>({static_cast<int>(num_files), cpu_limited, memory_limited}));
+}
+
+torch::ScalarType dtype_from_safetensors_name(const std::string& dtype) {
+    if (dtype == "BOOL") {
+        return torch::kBool;
+    }
+    if (dtype == "U8") {
+        return torch::kUInt8;
+    }
+    if (dtype == "I8") {
+        return torch::kInt8;
+    }
+    if (dtype == "I16") {
+        return torch::kInt16;
+    }
+    if (dtype == "U16") {
+        return torch::kUInt16;
+    }
+    if (dtype == "F16") {
+        return torch::kFloat16;
+    }
+    if (dtype == "BF16") {
+        return torch::kBFloat16;
+    }
+    if (dtype == "I32") {
+        return torch::kInt32;
+    }
+    if (dtype == "U32") {
+        return torch::kUInt32;
+    }
+    if (dtype == "F32") {
+        return torch::kFloat32;
+    }
+    if (dtype == "F64") {
+        return torch::kFloat64;
+    }
+    if (dtype == "I64") {
+        return torch::kInt64;
+    }
+    if (dtype == "U64") {
+        return torch::kUInt64;
+    }
+    if (dtype == "F8_E4M3") {
+        return c10::kFloat8_e4m3fn;
+    }
+    if (dtype == "F8_E5M2") {
+        return c10::kFloat8_e5m2;
+    }
+    TORCH_CHECK(false, "Unsupported safetensors dtype: ", dtype);
+}
+
 std::string normalize_weight_name(std::string name) {
     if (name.rfind("language_model.", 0) == 0) {
         name = name.substr(std::string("language_model.").size());
@@ -90,6 +208,34 @@ std::string normalize_param_name(std::string name) {
         }
     }
     return name;
+}
+
+bool is_scale_inv_name(const std::string& name) {
+    return name.size() >= std::string("_scale_inv").size() &&
+           name.compare(name.size() - std::string("_scale_inv").size(),
+                        std::string("_scale_inv").size(),
+                        "_scale_inv") == 0;
+}
+
+std::string scaled_weight_name(const std::string& scale_name) {
+    return scale_name.substr(0, scale_name.size() - std::string("_scale_inv").size());
+}
+
+torch::Tensor dequantize_fp8_weight_if_needed(const torch::Tensor& tensor,
+                                              const torch::Tensor& scale_inv) {
+    if (!scale_inv.defined()) {
+        return tensor;
+    }
+
+    TORCH_CHECK(tensor.dim() == 2 && scale_inv.dim() == 2,
+                "FP8 block dequant expects rank-2 weight and scale tensors");
+    auto dequantized = tensor.to(torch::kFloat32);
+    auto expanded_scale = scale_inv.to(torch::kFloat32)
+                              .repeat_interleave(kFp8WeightBlockRows, 0)
+                              .repeat_interleave(kFp8WeightBlockCols, 1)
+                              .slice(0, 0, tensor.size(0))
+                              .slice(1, 0, tensor.size(1));
+    return dequantized.mul_(expanded_scale);
 }
 
 bool get_expert_stack_info(const std::string& key, std::string& packed_key, int& expert_idx) {
@@ -210,7 +356,53 @@ torch::Tensor shard_expert_tensor(const std::string& name,
 
 std::unordered_map<std::string, torch::Tensor>
 WeightLoader::read_safetensors(const std::string& filepath, torch::Device device) {
-    return safetensors::load_safetensors(filepath, device);
+    std::ifstream file(filepath, std::ios::binary | std::ios::ate);
+    TORCH_CHECK(file.good(), "Failed to open safetensors file: ", filepath);
+
+    const std::streamsize file_size = file.tellg();
+    TORCH_CHECK(file_size >= 8, "Invalid safetensors file: ", filepath);
+    file.seekg(0, std::ios::beg);
+
+    std::vector<uint8_t> bytes(static_cast<size_t>(file_size));
+    file.read(reinterpret_cast<char*>(bytes.data()), file_size);
+    TORCH_CHECK(file.good(), "Failed to read safetensors file: ", filepath);
+
+    uint64_t header_len = 0;
+    std::memcpy(&header_len, bytes.data(), sizeof(header_len));
+    TORCH_CHECK(8 + header_len <= bytes.size(), "Invalid safetensors header length in: ", filepath);
+
+    const auto header_begin = reinterpret_cast<const char*>(bytes.data() + 8);
+    auto header = nlohmann::json::parse(header_begin, header_begin + header_len);
+    const size_t data_begin = 8 + static_cast<size_t>(header_len);
+
+    std::unordered_map<std::string, torch::Tensor> tensors;
+    for (auto it = header.begin(); it != header.end(); ++it) {
+        if (it.key() == "__metadata__") {
+            continue;
+        }
+
+        const auto& meta = it.value();
+        std::vector<int64_t> sizes;
+        for (const auto& dim : meta.at("shape")) {
+            sizes.push_back(dim.get<int64_t>());
+        }
+
+        auto offsets = meta.at("data_offsets");
+        TORCH_CHECK(offsets.size() == 2, "Invalid safetensors offsets for: ", it.key());
+        const size_t begin = data_begin + offsets[0].get<size_t>();
+        const size_t end = data_begin + offsets[1].get<size_t>();
+        TORCH_CHECK(begin <= end && end <= bytes.size(), "Safetensors data offset out of range for: ", it.key());
+
+        const auto scalar_type = dtype_from_safetensors_name(meta.at("dtype").get<std::string>());
+        auto options = torch::TensorOptions().dtype(scalar_type);
+        auto tensor = torch::from_blob(bytes.data() + begin, sizes, options).clone();
+        if (!device.is_cpu()) {
+            tensor = tensor.to(device);
+        }
+        tensors.emplace(it.key(), std::move(tensor));
+    }
+
+    return tensors;
 }
 
 std::unordered_map<std::string, torch::Tensor>
@@ -218,11 +410,28 @@ WeightLoader::merge_weights(std::unordered_map<std::string, torch::Tensor>&& raw
     std::unordered_map<std::string, torch::Tensor> merged_by_name;
     std::unordered_map<std::string, torch::Tensor> result;
     std::unordered_map<std::string, std::unordered_map<std::string, torch::Tensor>> merge_buf;
+    std::unordered_map<std::string, torch::Tensor> scale_inv_by_weight;
 
     for (auto& [name, tensor] : raw_weights) {
         std::string clean_name = normalize_weight_name(name);
+        if (is_scale_inv_name(clean_name)) {
+            scale_inv_by_weight[scaled_weight_name(clean_name)] = std::move(tensor);
+        }
+    }
+
+    for (auto& [name, tensor] : raw_weights) {
+        std::string clean_name = normalize_weight_name(name);
+        if (is_scale_inv_name(clean_name)) {
+            continue;
+        }
         if (clean_name.rfind("vision_tower.", 0) == 0 || clean_name.rfind("multi_modal_projector.", 0) == 0) {
             continue;
+        }
+
+        auto scale_it = scale_inv_by_weight.find(clean_name);
+        if (scale_it != scale_inv_by_weight.end()) {
+            tensor = dequantize_fp8_weight_if_needed(tensor, scale_it->second);
+            scale_inv_by_weight.erase(scale_it);
         }
 
         std::string merged_key, slot;
@@ -332,18 +541,6 @@ void WeightLoader::load_weights(torch::nn::Module& model,
 
     model.to(device, dtype);
 
-    std::unordered_map<std::string, torch::Tensor> all_tensors;
-    for (const auto& file : files) {
-        std::cout << "Loading weights from: " << file << std::endl;
-        auto tensors = read_safetensors(file, torch::Device(torch::kCPU));
-        for (auto& [name, tensor] : tensors) {
-            all_tensors[normalize_weight_name(name)] = std::move(tensor);
-        }
-    }
-
-    auto merged = merge_weights(std::move(all_tensors));
-    std::cout << "Total merged weight tensors: " << merged.size() << std::endl;
-
     auto params = model.named_parameters();
     std::unordered_map<std::string, torch::Tensor> param_map;
     for (auto& param : params) {
@@ -352,29 +549,73 @@ void WeightLoader::load_weights(torch::nn::Module& model,
 
     int loaded = 0;
     int skipped = 0;
+    int merged_count = 0;
     auto tp = get_tp_info();
-    for (auto& [name, tensor] : merged) {
-        auto it = param_map.find(name);
-        if (it == param_map.end()) {
-            skipped++;
-            continue;
-        }
+    int load_parallelism = determine_weight_load_parallelism(files.size(), tp.size);
+    std::cout << "Weight load parallelism: " << load_parallelism << std::endl;
 
-        auto& param = it->second;
-        if (param.sizes() != tensor.sizes()) {
-            tensor = shard_tensor_for_parameter(name, tensor, param.sizes(), tp.rank, tp.size, model_config);
+    auto load_shard = [](const std::string& file) {
+        std::cout << "Loading weights from: " << file << std::endl;
+        auto tensors = read_safetensors(file, torch::Device(torch::kCPU));
+        std::unordered_map<std::string, torch::Tensor> normalized_tensors;
+        normalized_tensors.reserve(tensors.size());
+        for (auto& [name, tensor] : tensors) {
+            normalized_tensors[normalize_weight_name(name)] = std::move(tensor);
         }
-        if (param.sizes() == tensor.sizes()) {
-            param.data().copy_(tensor.to(device, dtype));
-            loaded++;
-        } else {
-            std::cerr << "Shape mismatch for " << name
-                      << ": model=" << param.sizes()
-                      << " weight=" << tensor.sizes() << std::endl;
-            skipped++;
+        return LoadedShard{file, merge_weights(std::move(normalized_tensors))};
+    };
+
+    auto copy_shard = [&](LoadedShard&& shard) {
+        merged_count += static_cast<int>(shard.merged.size());
+        for (auto& [name, tensor] : shard.merged) {
+            auto it = param_map.find(name);
+            if (it == param_map.end()) {
+                skipped++;
+                continue;
+            }
+
+            auto& param = it->second;
+            if (param.sizes() != tensor.sizes()) {
+                tensor = shard_tensor_for_parameter(name, tensor, param.sizes(), tp.rank, tp.size, model_config);
+            }
+            if (param.sizes() == tensor.sizes()) {
+                param.data().copy_(tensor.to(device, dtype));
+                loaded++;
+            } else {
+                std::cerr << "Shape mismatch for " << name
+                          << ": model=" << param.sizes()
+                          << " weight=" << tensor.sizes() << std::endl;
+                skipped++;
+            }
+        }
+    };
+
+    std::vector<std::future<LoadedShard>> in_flight;
+    in_flight.reserve(load_parallelism);
+    size_t next_file = 0;
+
+    auto enqueue_next = [&]() {
+        if (next_file >= files.size()) {
+            return;
+        }
+        const std::string file = files[next_file++];
+        in_flight.emplace_back(std::async(std::launch::async, load_shard, file));
+    };
+
+    while (next_file < files.size() && static_cast<int>(in_flight.size()) < load_parallelism) {
+        enqueue_next();
+    }
+
+    while (!in_flight.empty()) {
+        LoadedShard shard = in_flight.front().get();
+        in_flight.erase(in_flight.begin());
+        copy_shard(std::move(shard));
+        while (next_file < files.size() && static_cast<int>(in_flight.size()) < load_parallelism) {
+            enqueue_next();
         }
     }
 
+    std::cout << "Total merged weight tensors: " << merged_count << std::endl;
     std::cout << "Loaded " << loaded << " parameters, skipped " << skipped << std::endl;
 }
 

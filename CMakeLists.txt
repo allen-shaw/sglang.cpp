@@ -5,14 +5,31 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Set CUDA architecture to avoid auto-detection issues
-set(TORCH_CUDA_ARCH_LIST "8.9")
+# Set CUDA architecture to avoid auto-detection issues.
+# 8.9 covers Ada Lovelace test hosts; 12.0 covers Blackwell hosts.
+set(TORCH_CUDA_ARCH_LIST "8.9;12.0")
 
 # LibTorch
 set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;/home/allen/miniconda3/lib/python3.12/site-packages/torch/share/cmake;${CMAKE_PREFIX_PATH}")
 find_package(Torch REQUIRED)
 message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+get_filename_component(TORCH_WHEEL_SITE_PACKAGES
+    "${Torch_DIR}/../../../.." REALPATH)
+set(TORCH_WHEEL_NCCL_LIBRARY
+    "${TORCH_WHEEL_SITE_PACKAGES}/nvidia/nccl/lib/libnccl.so.2")
+if(EXISTS "${TORCH_WHEEL_NCCL_LIBRARY}")
+    set(NCCL_LIBRARY "${TORCH_WHEEL_NCCL_LIBRARY}")
+else()
+    find_library(NCCL_LIBRARY nccl
+        HINTS
+        /root/miniconda3/lib/python3.12/site-packages/nvidia/nccl/lib
+        /usr/local/cuda/lib64
+    )
+endif()
+if(NCCL_LIBRARY)
+    message(STATUS "NCCL_LIBRARY: ${NCCL_LIBRARY}")
+endif()
 
 # Find dependencies
 find_package(Threads REQUIRED)
@@ -54,6 +71,7 @@ FetchContent_Declare(
 FetchContent_GetProperties(tokenizers_cpp)
 if(NOT tokenizers_cpp_POPULATED)
   FetchContent_Populate(tokenizers_cpp)
+  set(SPM_ABSL_PROVIDER "module" CACHE STRING "Provider of absl library" FORCE)
   add_subdirectory(${tokenizers_cpp_SOURCE_DIR} ${tokenizers_cpp_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 # ============================================================
@@ -132,6 +150,7 @@ target_compile_definitions(sglang_core PUBLIC
 
 target_link_libraries(sglang_core PUBLIC
     ${TORCH_LIBRARIES}
+    ${NCCL_LIBRARY}
     tokenizers_cpp
     nlohmann_json::nlohmann_json
     Threads::Threads

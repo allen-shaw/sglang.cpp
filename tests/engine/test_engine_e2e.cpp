@@ -3,8 +3,13 @@
 #include <algorithm>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
+
+#include <c10/cuda/CUDAGuard.h>
+#include <tokenizers_cpp.h>
 
 #include "sglang/distributed/distributed.h"
 #include "sglang/engine/engine.h"
@@ -125,6 +130,16 @@ bool is_flashinfer_attention_supported_head_dim(int head_dim) {
   return head_dim == 64 || head_dim == 128 || head_dim == 256 || head_dim == 512;
 }
 
+std::unique_ptr<tokenizers::Tokenizer> load_tokenizer(const std::string& tokenizer_path) {
+  std::ifstream file(tokenizer_path);
+  if (!file) {
+    throw std::runtime_error("Failed to open tokenizer: " + tokenizer_path);
+  }
+  std::stringstream buffer;
+  buffer << file.rdbuf();
+  return tokenizers::Tokenizer::FromBlobJSON(buffer.str());
+}
+
 std::shared_ptr<Req> make_req(uint64_t req_id,
                               int table_idx,
                               std::vector<int32_t> input_ids,
@@ -192,6 +207,7 @@ PreparedBatch prepare_batch(Engine& engine,
                             TableManager& table_manager,
                             CacheManager& cache_manager,
                             Batch& batch) {
+  c10::cuda::OptionalCUDAGuard device_guard(engine.device());
   engine.pad_batch(batch);
   cache_manager.allocate_paged(batch.reqs);
   batch.positions = make_positions(batch, engine.device());
@@ -213,6 +229,7 @@ void append_sampled_tokens(const ForwardOutput& output, const std::vector<std::s
 void write_next_tokens_to_pool(const ForwardOutput& output,
                                const PreparedBatch& prepared,
                                TableManager& table_manager) {
+  c10::cuda::OptionalCUDAGuard device_guard(table_manager.token_pool().device());
   auto valid_mask = prepared.write_positions.ge(0);
   if (!valid_mask.any().item<bool>()) {
     return;
@@ -224,6 +241,7 @@ void write_next_tokens_to_pool(const ForwardOutput& output,
 }
 
 void copy_prompt_to_pool(TableManager& table_manager, const Req& req) {
+  c10::cuda::OptionalCUDAGuard device_guard(table_manager.token_pool().device());
   auto device_ids = table_manager.token_pool()[req.table_idx].slice(0, 0, req.device_len());
   device_ids.copy_(req.input_ids.to(device_ids.device()));
 }
@@ -354,6 +372,83 @@ TEST(EngineE2ETest, RealTinyQwen3MoESingleRequestRunsToCompletion) {
   EXPECT_EQ(req->input_ids.size(0), 5);
   EXPECT_EQ(req->device_len(), 5);
   EXPECT_FALSE(req->can_decode());
+}
+
+TEST(EngineE2ETest, RealQwen3MoEPromptPrintsAnswers) {
+  if (!torch::cuda::is_available()) {
+    GTEST_SKIP() << "CUDA is required for real Qwen3-MOE prompt test";
+  }
+  if (!std::getenv("QWEN3_MOE_PROMPT_E2E")) {
+    GTEST_SKIP() << "Set QWEN3_MOE_PROMPT_E2E=1 to run the real prompt test";
+  }
+
+  const auto model_path = find_qwen3_moe_model_path();
+  if (model_path.empty()) {
+    GTEST_SKIP() << "Qwen3-MOE model path not found. Set QWEN3_MOE_MODEL_PATH";
+  }
+
+  const std::string tokenizer_path = model_path + "/tokenizer.json";
+  if (!std::filesystem::exists(tokenizer_path)) {
+    GTEST_SKIP() << "tokenizer.json not found at: " << tokenizer_path;
+  }
+
+  auto config = make_real_tiny_qwen3_moe_engine_config(model_path);
+  config.max_seq_len_override = 128;
+  config.num_pages_override = 128;
+
+  auto tokenizer = load_tokenizer(tokenizer_path);
+  Engine engine(config);
+  TableManager table_manager(/*max_running_reqs=*/4, engine.page_table());
+  CacheManager cache_manager(engine.num_pages(), /*page_size=*/1, engine.page_table(), "radix");
+
+  const std::string prompt =
+      "Answer briefly.\n"
+      "1. What is the capital of France?\n"
+      "2. What is 2+3?\n"
+      "3. What is the capital of China?\n"
+      "Answers:\n";
+  const auto encoded = tokenizer->Encode(prompt);
+  ASSERT_FALSE(encoded.empty());
+
+  std::vector<int32_t> prompt_ids;
+  prompt_ids.reserve(encoded.size());
+  for (int id : encoded) {
+    prompt_ids.push_back(static_cast<int32_t>(id));
+  }
+
+  auto req = make_req(/*req_id=*/127, table_manager.allocate(), prompt_ids, /*max_new_tokens=*/48);
+  req->sampling_params.temperature = 0.0F;
+  req->sampling_params.top_p = 1.0F;
+  req->sampling_params.top_k = -1;
+  req->sampling_params.max_new_tokens = 48;
+  copy_prompt_to_pool(table_manager, *req);
+
+  std::vector<int32_t> generated_ids;
+  bool first_step = true;
+  while (req->can_decode()) {
+    Batch batch;
+    batch.reqs = {req};
+    batch.phase = first_step ? BatchPhase::Prefill : BatchPhase::Decode;
+    auto prepared = prepare_batch(engine, table_manager, cache_manager, batch);
+
+    auto sampling_args = engine.prepare_sampling_args(batch);
+    auto output = engine.forward_batch(batch, sampling_args);
+    output.synchronize();
+    write_next_tokens_to_pool(output, prepared, table_manager);
+
+    auto next_token = output.next_tokens_cpu[0].to(torch::kInt32).reshape({1});
+    const int32_t token = next_token.item<int32_t>();
+    generated_ids.push_back(token);
+    req->append_host(next_token);
+    first_step = false;
+  }
+
+  const std::string generated_text = tokenizer->Decode(generated_ids);
+  if (tp_rank() == 0) {
+    std::cout << "\n[real qwen3-moe prompt]\n" << prompt
+              << "[real qwen3-moe output]\n" << generated_text << std::endl;
+  }
+  EXPECT_FALSE(generated_text.empty());
 }
 
 TEST(EngineE2ETest, SingleRequestRunsToCompletionWithCudaGraphDecode) {
