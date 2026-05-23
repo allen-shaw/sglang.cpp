@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "sglang/kernels/token_pool.h"
 #include "sglang/kvcache/cache_manager.h"
 #include "sglang/scheduler/decode.h"
 #include "sglang/utils/math_utils.h"
@@ -117,32 +118,72 @@ torch::Tensor CacheManager::pages_to_tokens(const std::vector<int32_t>& pages) c
     return torch::tensor(tokens, torch::TensorOptions().dtype(torch::kInt32).device(device_));
 }
 
-void CacheManager::write_page_table(
-    const torch::Tensor& allocated,
-    const std::vector<std::tuple<int, int, int>>& allocation_info) const {
-    if (!allocated.defined() || allocated.numel() == 0) {
+void CacheManager::ensure_page_write_workspace(int needed_tokens) {
+    if (page_write_tokens_host_.numel() >= needed_tokens) {
         return;
     }
 
-    const int needed_tokens = static_cast<int>(allocated.numel());
-    auto table_idx_host = torch::empty({needed_tokens}, torch::TensorOptions().dtype(torch::kInt64));
-    auto positions_host = torch::empty({needed_tokens}, torch::TensorOptions().dtype(torch::kInt64));
-    auto* table_idx_ptr = table_idx_host.data_ptr<int64_t>();
-    auto* positions_ptr = positions_host.data_ptr<int64_t>();
+    int next_len = 1;
+    while (next_len < needed_tokens) {
+        next_len <<= 1;
+    }
+
+    const auto int32_host_options =
+        torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU).pinned_memory(true);
+    const auto int32_device_options =
+        torch::TensorOptions().dtype(torch::kInt32).device(device_);
+
+    page_write_table_idx_host_ = torch::empty({next_len}, int32_host_options);
+    page_write_positions_host_ = torch::empty({next_len}, int32_host_options);
+    page_write_tokens_host_ = torch::empty({next_len}, int32_host_options);
+    page_write_table_idx_device_ = torch::empty({next_len}, int32_device_options);
+    page_write_positions_device_ = torch::empty({next_len}, int32_device_options);
+    page_write_tokens_device_ = torch::empty({next_len}, int32_device_options);
+}
+
+void CacheManager::write_page_table(
+    const std::vector<int32_t>& allocated_pages,
+    const std::vector<std::tuple<int, int, int>>& allocation_info) {
+    if (allocated_pages.empty()) {
+        return;
+    }
+
+    const int needed_tokens = static_cast<int>(allocated_pages.size()) * page_size_;
+    ensure_page_write_workspace(needed_tokens);
+    auto table_idx_host = page_write_table_idx_host_.slice(0, 0, needed_tokens);
+    auto positions_host = page_write_positions_host_.slice(0, 0, needed_tokens);
+    auto tokens_host = page_write_tokens_host_.slice(0, 0, needed_tokens);
+    auto table_idx_device = page_write_table_idx_device_.slice(0, 0, needed_tokens);
+    auto positions_device = page_write_positions_device_.slice(0, 0, needed_tokens);
+    auto tokens_device = page_write_tokens_device_.slice(0, 0, needed_tokens);
+
+    auto* table_idx_ptr = table_idx_host.data_ptr<int32_t>();
+    auto* positions_ptr = positions_host.data_ptr<int32_t>();
+    auto* tokens_ptr = tokens_host.data_ptr<int32_t>();
 
     int offset = 0;
+    size_t allocated_offset = 0;
     for (const auto& [table_idx, first_page, last_page] : allocation_info) {
-        const int first_pos = first_page * page_size_;
-        const int last_pos = last_page * page_size_;
-        for (int pos = first_pos; pos < last_pos; ++pos) {
-            table_idx_ptr[offset] = table_idx;
-            positions_ptr[offset] = pos;
-            ++offset;
+        for (int page = first_page; page < last_page; ++page) {
+            TORCH_CHECK(allocated_offset < allocated_pages.size(),
+                        "Allocated page count mismatch");
+            const int32_t page_start = allocated_pages[allocated_offset++];
+            for (int i = 0; i < page_size_; ++i) {
+                table_idx_ptr[offset] = table_idx;
+                positions_ptr[offset] = page * page_size_ + i;
+                tokens_ptr[offset] = page_start + i;
+                ++offset;
+            }
         }
     }
     TORCH_CHECK(offset == needed_tokens, "Allocated token count mismatch");
+    TORCH_CHECK(allocated_offset == allocated_pages.size(),
+                "Allocated page count mismatch");
 
-    page_table_.index_put_({table_idx_host.to(device_), positions_host.to(device_)}, allocated);
+    table_idx_device.copy_(table_idx_host, /*non_blocking=*/true);
+    positions_device.copy_(positions_host, /*non_blocking=*/true);
+    tokens_device.copy_(tokens_host, /*non_blocking=*/true);
+    write_token_pool(page_table_, table_idx_device, positions_device, tokens_device);
 }
 
 void CacheManager::allocate_paged(const std::vector<std::shared_ptr<Req>>& reqs) {
@@ -160,7 +201,7 @@ void CacheManager::allocate_paged(const std::vector<std::shared_ptr<Req>>& reqs)
         return;
     }
 
-    auto allocated = pages_to_tokens(allocate_pages(needed_pages));
+    auto allocated = allocate_pages(needed_pages);
     write_page_table(allocated, allocation_info);
 }
 
@@ -317,10 +358,10 @@ PrefillManager::PrefillManager(CacheManager& cache_manager,
       table_manager_(table_manager),
       decode_manager_(decode_manager) {}
 
-void PrefillManager::add_one_req(const GenerateRequest& req) {
+void PrefillManager::add_one_req(GenerateRequest req) {
     pending_list_.push_back(PendingReq{
         req.uid,
-        req.input_ids.contiguous(),
+        std::move(req.input_ids),
         req.sampling_params,
         nullptr,
     });
@@ -381,6 +422,10 @@ std::shared_ptr<Req> PrefillManager::abort_req(uint64_t uid) {
 
 bool PrefillManager::runnable() const {
     return !pending_list_.empty();
+}
+
+size_t PrefillManager::pending_size() const {
+    return pending_list_.size();
 }
 
 }  // namespace sglang

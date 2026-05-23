@@ -40,6 +40,24 @@ float parse_float(const std::string& value) {
   return std::stof(value);
 }
 
+std::vector<int> parse_int_list(const std::string& value) {
+  std::vector<int> result;
+  size_t start = 0;
+  while (start <= value.size()) {
+    const auto end = value.find(',', start);
+    const auto token =
+        value.substr(start, end == std::string::npos ? std::string::npos : end - start);
+    if (!token.empty()) {
+      result.push_back(parse_int(token));
+    }
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + 1;
+  }
+  return result;
+}
+
 std::string expand_home(std::string path) {
   if (!path.empty() && path[0] == '~') {
     if (const char* home = std::getenv("HOME")) {
@@ -60,6 +78,9 @@ SchedulerConfig ServerArgs::to_scheduler_config() const {
   config.memory_ratio = memory_ratio;
   config.use_dummy_weight = use_dummy_weight;
   config.enable_cuda_graph = enable_cuda_graph;
+  config.cuda_graph_max_batch_size = cuda_graph_max_batch_size;
+  config.cuda_graph_batch_sizes = cuda_graph_batch_sizes;
+  config.cuda_graph_capture_max_seq_len = cuda_graph_capture_max_seq_len;
   config.max_seq_len_override = max_seq_len_override;
   config.num_pages_override = num_pages_override;
   config.max_extend_tokens = max_extend_tokens;
@@ -109,9 +130,16 @@ ServerArgs ServerArgsParser::parse(const std::vector<std::string>& args) {
       result.max_seq_len_override = parse_int(require_value(args, &i));
     } else if (arg == "--dummy-weight") {
       result.use_dummy_weight = true;
+    } else if (arg == "--disable-graph" || arg == "--disable-cuda-graph") {
+      result.enable_cuda_graph = false;
     } else if (arg == "--graph" || arg == "--cuda-graph-max-bs") {
       result.enable_cuda_graph = true;
-      (void)require_value(args, &i);
+      result.cuda_graph_max_batch_size = parse_int(require_value(args, &i));
+    } else if (arg == "--cuda-graph-batch-sizes") {
+      result.enable_cuda_graph = true;
+      result.cuda_graph_batch_sizes = parse_int_list(require_value(args, &i));
+    } else if (arg == "--cuda-graph-capture-max-seq-len") {
+      result.cuda_graph_capture_max_seq_len = parse_int(require_value(args, &i));
     } else if (arg == "--cache-type") {
       result.cache_type = require_value(args, &i);
     } else if (arg == "--shell-mode") {
@@ -120,6 +148,8 @@ ServerArgs ServerArgsParser::parse(const std::vector<std::string>& args) {
       result.silent_output = true;
     } else if (arg == "--enable-overlap-scheduling") {
       result.enable_overlap_scheduling = true;
+    } else if (arg == "--disable-overlap-scheduling") {
+      result.enable_overlap_scheduling = false;
     } else {
       throw std::invalid_argument("Unknown argument: " + arg);
     }

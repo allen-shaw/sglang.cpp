@@ -1,10 +1,15 @@
 #include <gtest/gtest.h>
 #include <torch/torch.h>
+#include "sglang/distributed/distributed.h"
 #include "sglang/layers/linear.h"
 
 using namespace sglang;
 
 TEST(LinearTest, Replicated) {
+    if (!torch::cuda::is_available()) {
+        GTEST_SKIP() << "CUDA is required for Linear layer tests";
+    }
+
     int batch_size = 2;
     int in_features = 128;
     int out_features = 64;
@@ -20,6 +25,10 @@ TEST(LinearTest, Replicated) {
 }
 
 TEST(LinearTest, RowParallel) {
+    if (!torch::cuda::is_available()) {
+        GTEST_SKIP() << "CUDA is required for Linear layer tests";
+    }
+
     int batch_size = 2;
     int in_features = 128;
     int out_features = 64;
@@ -34,6 +43,10 @@ TEST(LinearTest, RowParallel) {
 }
 
 TEST(LinearTest, ColParallelMerged) {
+    if (!torch::cuda::is_available()) {
+        GTEST_SKIP() << "CUDA is required for Linear layer tests";
+    }
+
     int batch_size = 2;
     int in_features = 128;
     std::vector<int> out_features = {64, 32};
@@ -48,6 +61,10 @@ TEST(LinearTest, ColParallelMerged) {
 }
 
 TEST(LinearTest, QKVMerged) {
+    if (!torch::cuda::is_available()) {
+        GTEST_SKIP() << "CUDA is required for Linear layer tests";
+    }
+
     int batch_size = 2;
     int hidden_size = 128;
     int head_dim = 64;
@@ -64,6 +81,10 @@ TEST(LinearTest, QKVMerged) {
 }
 
 TEST(LinearTest, OProj) {
+    if (!torch::cuda::is_available()) {
+        GTEST_SKIP() << "CUDA is required for Linear layer tests";
+    }
+
     int batch_size = 2;
     int in_features = 128;
     int out_features = 64;
@@ -75,4 +96,28 @@ TEST(LinearTest, OProj) {
     
     EXPECT_EQ(output.size(0), batch_size);
     EXPECT_EQ(output.size(1), out_features);
+}
+
+TEST(LinearTest, TensorParallelShapes) {
+    if (!torch::cuda::is_available()) {
+        GTEST_SKIP() << "CUDA is required because Linear weights are CUDA tensors";
+    }
+
+    set_tp_info_for_test(/*rank=*/1, /*size=*/2);
+
+    LinearColParallelMerged col(/*input_size=*/128, std::vector<int>{64, 32}, /*has_bias=*/false);
+    EXPECT_EQ(col.weight.sizes().vec(), std::vector<int64_t>({48, 128}));
+
+    LinearRowParallel row(/*input_size=*/128, /*output_size=*/64, /*has_bias=*/false);
+    EXPECT_EQ(row.weight.sizes().vec(), std::vector<int64_t>({64, 64}));
+
+    LinearQKVMerged qkv(/*hidden_size=*/128, /*head_dim=*/64, /*num_qo_heads=*/4, /*num_kv_heads=*/2, false);
+    EXPECT_EQ(qkv.weight.sizes().vec(), std::vector<int64_t>({256, 128}));
+    EXPECT_EQ(qkv.local_num_qo_heads(), 2);
+    EXPECT_EQ(qkv.local_num_kv_heads(), 1);
+
+    LinearOProj o_proj(/*input_size=*/256, /*output_size=*/128, /*has_bias=*/false);
+    EXPECT_EQ(o_proj.weight.sizes().vec(), std::vector<int64_t>({128, 128}));
+
+    reset_tp_info_for_test();
 }

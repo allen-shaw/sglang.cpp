@@ -51,6 +51,7 @@ struct Req {
     // State update methods
     void complete_one();
     void append_host(const torch::Tensor& next_token);
+    void append_host_token(int32_t next_token);
 
     // Debug string representation
     std::string toString() const;

@@ -55,7 +55,7 @@ ModelConfig ModelConfig::from_json_file(const std::string& path) {
     }
 
     // MoE fields (defaults for non-MoE models)
-    config.num_experts = j.value("num_experts", 0);
+    config.num_experts = j.value("num_local_experts", j.value("num_experts", 0));
     config.num_experts_per_tok = j.value("num_experts_per_tok", 0);
     config.moe_intermediate_size = j.value("moe_intermediate_size", 0);
     config.norm_topk_prob = j.value("norm_topk_prob", false);

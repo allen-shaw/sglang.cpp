@@ -5,14 +5,31 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Set CUDA architecture to avoid auto-detection issues
-set(TORCH_CUDA_ARCH_LIST "8.9")
+# Set CUDA architecture to avoid auto-detection issues.
+# 8.9 covers Ada Lovelace test hosts; 12.0 covers Blackwell hosts.
+set(TORCH_CUDA_ARCH_LIST "8.9;12.0")
 
 # LibTorch
 set(CMAKE_PREFIX_PATH "${CMAKE_CURRENT_SOURCE_DIR}/third_party/torch;/home/allen/miniconda3/lib/python3.12/site-packages/torch/share/cmake;${CMAKE_PREFIX_PATH}")
 find_package(Torch REQUIRED)
 message(STATUS "TORCH_LIBRARIES: ${TORCH_LIBRARIES}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+get_filename_component(TORCH_WHEEL_SITE_PACKAGES
+    "${Torch_DIR}/../../../.." REALPATH)
+set(TORCH_WHEEL_NCCL_LIBRARY
+    "${TORCH_WHEEL_SITE_PACKAGES}/nvidia/nccl/lib/libnccl.so.2")
+if(EXISTS "${TORCH_WHEEL_NCCL_LIBRARY}")
+    set(NCCL_LIBRARY "${TORCH_WHEEL_NCCL_LIBRARY}")
+else()
+    find_library(NCCL_LIBRARY nccl
+        HINTS
+        /root/miniconda3/lib/python3.12/site-packages/nvidia/nccl/lib
+        /usr/local/cuda/lib64
+    )
+endif()
+if(NCCL_LIBRARY)
+    message(STATUS "NCCL_LIBRARY: ${NCCL_LIBRARY}")
+endif()
 
 # Find dependencies
 find_package(Threads REQUIRED)
@@ -54,6 +71,7 @@ FetchContent_Declare(
 FetchContent_GetProperties(tokenizers_cpp)
 if(NOT tokenizers_cpp_POPULATED)
   FetchContent_Populate(tokenizers_cpp)
+  set(SPM_ABSL_PROVIDER "module" CACHE STRING "Provider of absl library" FORCE)
   add_subdirectory(${tokenizers_cpp_SOURCE_DIR} ${tokenizers_cpp_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 # ============================================================
@@ -67,6 +85,18 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 
 # ============================================================
+# Google Benchmark
+# ============================================================
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    google_benchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.8.4
+)
+FetchContent_MakeAvailable(google_benchmark)
+
+# ============================================================
 # Core static library (shared by server and tests)
 # ============================================================
 set(SGLANG_CORE_SRCS
@@ -76,10 +106,12 @@ set(SGLANG_CORE_SRCS
     src/core/sampling_params.cc
     src/utils/tensor_utils.cc
     src/message/message.cc
+    src/distributed/distributed.cc
     src/kernels/radix.cc
+    src/kernels/token_pool.cu
     src/kvcache/radix_tree.cc
     src/kvcache/cache_manager.cc
-    src/kvcache/mha_kvcache.cc
+    src/kvcache/mha_kvcache.cu
     src/layers/activation.cu
     src/layers/normalization.cu
     src/layers/rotary_embedding.cu
@@ -98,6 +130,7 @@ set(SGLANG_CORE_SRCS
     src/models/weight_loader.cc
     src/moe/moe.cc
     src/engine/config.cc
+    src/engine/sampling.cu
     src/engine/engine.cc
     src/scheduler/prefill.cc
     src/scheduler/decode.cc
@@ -110,8 +143,14 @@ set(SGLANG_CORE_SRCS
 
 add_library(sglang_core STATIC ${SGLANG_CORE_SRCS})
 
+target_compile_definitions(sglang_core PUBLIC
+    CINATRA_LOG_DEBUG=cinatra::NULL_LOGGER
+    CINATRA_LOG_TRACE=cinatra::NULL_LOGGER
+)
+
 target_link_libraries(sglang_core PUBLIC
     ${TORCH_LIBRARIES}
+    ${NCCL_LIBRARY}
     tokenizers_cpp
     nlohmann_json::nlohmann_json
     Threads::Threads
@@ -173,6 +212,11 @@ add_test(NAME TestSamplingParams COMMAND test_sampling_params)
 add_executable(test_tensor_utils tests/utils/test_tensor_utils.cpp)
 target_link_libraries(test_tensor_utils PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestTensorUtils COMMAND test_tensor_utils)
+
+# Distributed tests
+add_executable(test_distributed tests/distributed/test_distributed.cpp)
+target_link_libraries(test_distributed PRIVATE sglang_core GTest::gtest_main)
+add_test(NAME TestDistributed COMMAND test_distributed)
 
 # Message tests
 add_executable(test_message tests/message/test_message.cpp)
@@ -279,3 +323,9 @@ add_test(NAME TestServerArgs COMMAND test_server_args)
 add_executable(test_http_e2e tests/server/test_http_e2e.cpp)
 target_link_libraries(test_http_e2e PRIVATE sglang_core GTest::gtest_main)
 add_test(NAME TestHttpE2E COMMAND test_http_e2e)
+
+# ============================================================
+# Benchmark targets
+# ============================================================
+add_executable(bench_offline benchmarks/offline/bench_offline.cpp)
+target_link_libraries(bench_offline PRIVATE sglang_core benchmark::benchmark)

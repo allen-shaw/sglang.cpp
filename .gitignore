@@ -42,6 +42,7 @@
 
 # Build directories
 build/
+build_bench/
 cmake-build-*/
 
 # CMake generated files
@@ -53,5 +54,14 @@ compile_commands.json
 
 .cache/
 .mypy_cache/
+__pycache__/
+*.pyc
+benchmarks/results/
 
 third_party/
+
+# Profile artifacts
+docs/profile/**
+!docs/profile/
+!docs/profile/**/
+!docs/profile/**/*.md

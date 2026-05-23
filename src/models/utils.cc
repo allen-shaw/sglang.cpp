@@ -1,7 +1,22 @@
 #include "sglang/models/utils.h"
+
+#include "sglang/core/context.h"
 #include "sglang/layers/activation.h"
 
 namespace sglang {
+
+torch::Tensor select_lm_head_input(const torch::Tensor& hidden_states) {
+    auto ctx = get_global_ctx();
+    if (!ctx || !ctx->batch || !ctx->batch->is_prefill() || !ctx->batch->attn_metadata) {
+        return hidden_states;
+    }
+
+    auto indices = ctx->batch->attn_metadata->get_last_indices(ctx->batch->size());
+    if (indices.scalar_type() != torch::kInt64) {
+        indices = indices.to(torch::kInt64);
+    }
+    return hidden_states.index_select(0, indices).contiguous();
+}
 
 GatedMLP::GatedMLP(const ModelConfig& config) : hidden_act_(config.hidden_act) {
     gate_up_proj_ = register_module(
@@ -58,7 +73,8 @@ MoEMLP::MoEMLP(const ModelConfig& config) {
             config.num_experts_per_tok,
             config.hidden_size,
             config.moe_intermediate_size,
-            config.norm_topk_prob
+            config.norm_topk_prob,
+            config.hidden_act
         )
     );
 }

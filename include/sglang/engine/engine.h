@@ -1,10 +1,13 @@
 #pragma once
 
+#include <array>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include <ATen/cuda/CUDAEvent.h>
+#include <ATen/cuda/CUDAGraph.h>
 #include <torch/torch.h>
 
 #include "sglang/core/batch.h"
@@ -38,8 +41,17 @@ class Sampler {
     torch::Tensor sample(const torch::Tensor& logits, const BatchSamplingArgs& args) const;
 
  private:
+    void ensure_prepare_workspace(int64_t batch_size) const;
+
     torch::Device device_;
     int vocab_size_;
+    mutable torch::Tensor temperatures_host_;
+    mutable std::array<torch::Tensor, 2> temperatures_device_;
+    mutable torch::Tensor top_k_host_;
+    mutable std::array<torch::Tensor, 2> top_k_device_;
+    mutable torch::Tensor top_p_host_;
+    mutable std::array<torch::Tensor, 2> top_p_device_;
+    mutable int prepare_slot_ = 0;
 };
 
 class Engine {
@@ -52,6 +64,7 @@ class Engine {
     void shutdown();
 
     const torch::Device& device() const { return device_; }
+    const c10::cuda::CUDAStream& stream() const { return stream_; }
     const torch::Tensor& page_table() const { return page_table_; }
     int max_seq_len() const { return max_seq_len_; }
     int num_pages() const { return num_pages_; }
@@ -86,6 +99,7 @@ class Engine {
     Sampler sampler_;
     c10::cuda::CUDAStream stream_;
     torch::Tensor page_table_;
+    std::shared_ptr<Req> dummy_req_;
 };
 
 class GraphRunner {
@@ -93,18 +107,56 @@ class GraphRunner {
     GraphRunner(torch::Device device,
                 bool enable_cuda_graph,
                 std::vector<int> batch_sizes,
-                int max_batch_size);
+                int max_batch_size,
+                int max_seq_len,
+                int capture_max_seq_len,
+                int vocab_size,
+                std::shared_ptr<Context> ctx,
+                std::shared_ptr<BaseAttnBackend> attn_backend,
+                std::function<torch::Tensor(const torch::Tensor&, const torch::Tensor&)> model_forward,
+                std::shared_ptr<Req> dummy_req,
+                c10::cuda::CUDAStream stream);
 
     bool can_use_cuda_graph(const Batch& batch) const;
     void pad_batch(Batch& batch) const;
-    torch::Tensor replay(Batch& batch) const;
+    torch::Tensor replay(Batch& batch);
     void destroy_cuda_graphs();
 
  private:
+    struct GraphCaptureBuffer {
+        torch::Tensor input_ids;
+        torch::Tensor out_loc;
+        torch::Tensor positions;
+
+        static GraphCaptureBuffer init(int max_batch_size, torch::Device device);
+        void set_batch(Batch& batch, int batch_size) const;
+        void copy_from(const Batch& batch) const;
+    };
+
+    struct GraphCaptureState {
+        int batch_size = 0;
+        std::shared_ptr<Batch> batch;
+        GraphCaptureBuffer buffer;
+        torch::Tensor logits;
+        std::unique_ptr<at::cuda::CUDAGraph> graph;
+    };
+
+    void capture_graphs(int max_seq_len, int vocab_size);
+    static std::vector<int> determine_batch_sizes(bool enable_cuda_graph,
+                                                  std::vector<int> batch_sizes,
+                                                  int max_batch_size);
+
     torch::Device device_;
     bool enable_cuda_graph_ = false;
     std::vector<int> graph_batch_sizes_;
     int max_batch_size_ = 0;
+    int capture_max_seq_len_ = 0;
+    std::shared_ptr<Context> ctx_;
+    std::shared_ptr<BaseAttnBackend> attn_backend_;
+    std::function<torch::Tensor(const torch::Tensor&, const torch::Tensor&)> model_forward_;
+    std::shared_ptr<Req> dummy_req_;
+    c10::cuda::CUDAStream stream_;
+    std::unordered_map<int, GraphCaptureState> graph_map_;
 };
 
 }  // namespace sglang

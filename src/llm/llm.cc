@@ -28,6 +28,12 @@ GenerateTextResult LLM::generate(const std::string& prompt,
   return frontend_->wait_result(uid);
 }
 
+GenerateTextResult LLM::generate(const torch::Tensor& prompt_token_ids,
+                                 const SamplingParams& sampling_params) {
+  const auto uid = frontend_->submit_tokenized_request(prompt_token_ids, sampling_params);
+  return frontend_->wait_result(uid);
+}
+
 std::vector<GenerateTextResult> LLM::generate(
     const std::vector<std::string>& prompts,
     const std::vector<SamplingParams>& sampling_params) {
@@ -49,6 +55,28 @@ std::vector<GenerateTextResult> LLM::generate(
   return results;
 }
 
+std::vector<GenerateTextResult> LLM::generate(
+    const std::vector<torch::Tensor>& prompt_token_ids,
+    const std::vector<SamplingParams>& sampling_params) {
+  if (prompt_token_ids.size() != sampling_params.size()) {
+    throw std::invalid_argument("prompt_token_ids and sampling_params must have the same size");
+  }
+
+  std::vector<uint64_t> uids;
+  uids.reserve(prompt_token_ids.size());
+  for (size_t i = 0; i < prompt_token_ids.size(); ++i) {
+    uids.push_back(
+        frontend_->submit_tokenized_request(prompt_token_ids[i], sampling_params[i]));
+  }
+
+  std::vector<GenerateTextResult> results;
+  results.reserve(prompt_token_ids.size());
+  for (auto uid : uids) {
+    results.push_back(frontend_->wait_result(uid));
+  }
+  return results;
+}
+
 void LLM::shutdown() {
   if (shutdown_) {
     return;
@@ -57,9 +85,9 @@ void LLM::shutdown() {
   if (scheduler_runner_) {
     scheduler_runner_->stop();
   }
+  tokenizer_pool_.reset();
   frontend_.reset();
   scheduler_runner_.reset();
-  tokenizer_pool_.reset();
 }
 
 }  // namespace sglang

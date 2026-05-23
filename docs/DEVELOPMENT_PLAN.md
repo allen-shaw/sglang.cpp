@@ -74,16 +74,29 @@
         *   真实模型 `Qwen3` Greedy Generation: 生成结果文本需包含 `Paris/巴黎`，用于兜住模型层与采样层的基本正确性。
         *   真实模型 `Scheduler` smoke test: 输入自然语言 prompt，例如 `"What is the capital of France?"`，打印生成结果并验证输出包含 `Paris/巴黎`。
     *   **当前优先补充的多请求/并发测试**:
-        *   两个请求同一时刻提交并全部完成。
-        *   一个请求进入 decode 后，第二个请求再提交，验证错峰到达不会饿死。
-        *   不同 `max_new_tokens` 的请求独立结束，短请求可先回收，长请求继续 decode。
-        *   pending request abort。
-        *   running decode request abort。
-        *   prefill budget 不足时触发 chunked prefill，并最终完成。
-        *   decode 中插入 chunked prefill，验证调度状态机正确。
-        *   共享 prefix 的请求复用 radix cache，避免不必要的初始 chunking。
-        *   顺序批次之间的 running slot / page table 资源可复用。
-        *   真实模型双请求 smoke test，例如同时询问 France/Germany 首都，验证不同请求输出不串扰。
+        *   **第一阶段：Engine / Scheduler 维度**
+            *   `Engine` 同批双请求推理: 两个请求在同一个 batch 中 prefill/decode，验证 page table、KV 写入和请求结束条件互不影响。
+            *   `Engine` 错峰双请求推理: 第一个请求完成首轮 prefill 后，第二个请求再进入，再共同完成 decode。
+            *   `Engine` 并发压力 sweep: 按 `8 / 16 / 64 / 128` 扫描请求并发度，直到显存不足或达到上限。
+            *   `Scheduler` 两个请求同一时刻提交并全部完成。
+            *   `Scheduler` 三个请求同一时刻提交并全部完成。
+            *   `Scheduler` 并发压力 sweep: 按 `8 / 16 / 64 / 128` 扫描请求并发度，直到显存不足或达到上限。
+            *   一个请求进入 decode 后，第二个请求再提交，验证错峰到达不会饿死。
+            *   不同 `max_new_tokens` 的请求独立结束，短请求可先回收，长请求继续 decode。
+            *   pending request abort。
+            *   running decode request abort。
+            *   prefill budget 不足时触发 chunked prefill，并最终完成。
+            *   decode 中插入 chunked prefill，验证调度状态机正确。
+            *   共享 prefix 的请求复用 radix cache，避免不必要的初始 chunking。
+            *   顺序批次之间的 running slot / page table 资源可复用。
+            *   真实模型双请求 smoke test，例如同时询问 France/Germany 首都，验证不同请求输出不串扰。
+        *   **第二阶段：服务与接口维度**
+            *   `LLM` 离线接口并发生成: 同一个 `LLM` 实例并发提交多个 prompt，验证 uid、输出文本和完成状态不串扰。
+            *   `LLM` 并发压力 sweep: 按 `8 / 16 / 64 / 128` 扫描批量生成并发度，直到显存不足或达到上限。
+            *   HTTP `/generate` 并发请求: 两个用户同时请求不同问题，验证响应互不污染。
+            *   HTTP `/generate` 并发压力 sweep: 按 `8 / 16 / 64 / 128` 扫描客户端并发度，直到显存不足或达到上限。
+            *   `ApiServer::handle_chat_completions` 并发调用: 结构化 `messages` 并发进入时，chat template 路径仍能稳定返回各自结果。
+            *   后续可继续增加 streaming 并发场景，验证 SSE 分块顺序与 `[DONE]` 结束标记。
     *   **后续再补充的压力/一致性测试**:
         *   多个长 prompt 同时进入，制造 cache pressure，验证 eviction 后仍能推进。
         *   prefix cache 命中与 abort 混合场景。

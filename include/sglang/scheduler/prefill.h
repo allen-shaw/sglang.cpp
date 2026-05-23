@@ -73,14 +73,21 @@ class CacheManager {
     std::vector<int32_t> allocate_pages(int needed_pages);
     void free_indices(const torch::Tensor& indices);
     torch::Tensor pages_to_tokens(const std::vector<int32_t>& pages) const;
-    void write_page_table(const torch::Tensor& allocated,
-                          const std::vector<std::tuple<int, int, int>>& allocation_info) const;
+    void ensure_page_write_workspace(int needed_tokens);
+    void write_page_table(const std::vector<int32_t>& allocated_pages,
+                          const std::vector<std::tuple<int, int, int>>& allocation_info);
     void flush_lazy_free();
 
     int num_pages_;
     int page_size_;
     torch::Tensor page_table_;
     torch::Device device_;
+    torch::Tensor page_write_table_idx_host_;
+    torch::Tensor page_write_positions_host_;
+    torch::Tensor page_write_tokens_host_;
+    torch::Tensor page_write_table_idx_device_;
+    torch::Tensor page_write_positions_device_;
+    torch::Tensor page_write_tokens_device_;
     std::shared_ptr<BasePrefixCache> prefix_cache_;
     std::vector<int32_t> free_slots_;
     bool lazy_free_active_ = false;
@@ -116,10 +123,11 @@ class PrefillManager {
                    TableManager& table_manager,
                    DecodeManager& decode_manager);
 
-    void add_one_req(const GenerateRequest& req);
+    void add_one_req(GenerateRequest req);
     std::shared_ptr<Batch> schedule_next_batch(int prefill_budget);
     std::shared_ptr<Req> abort_req(uint64_t uid);
     bool runnable() const;
+    size_t pending_size() const;
 
  private:
     CacheManager& cache_manager_;

@@ -6,14 +6,11 @@
 #include "sglang/layers/linear.h"
 #include "sglang/layers/attention_layer.h"
 #include "sglang/layers/normalization.h"
-// #include "sglang/moe/moe.h"  // Forward declare for now
+#include "sglang/moe/moe.h"
 
 namespace sglang {
-class MoELayer : public torch::nn::Module {
- public:
-    MoELayer(int num_experts, int num_experts_per_tok, int hidden_size, int intermediate_size, bool norm_topk_prob) {}
-    torch::Tensor forward(const torch::Tensor& hidden_states, const torch::Tensor& router_logits) { return hidden_states; }
-}; // Dummy implementation
+
+torch::Tensor select_lm_head_input(const torch::Tensor& hidden_states);
 
 class GatedMLP : public torch::nn::Module {
  public:

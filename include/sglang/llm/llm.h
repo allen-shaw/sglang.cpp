@@ -15,8 +15,13 @@ class LLM {
   ~LLM();
 
   GenerateTextResult generate(const std::string& prompt, const SamplingParams& sampling_params);
+  GenerateTextResult generate(const torch::Tensor& prompt_token_ids,
+                              const SamplingParams& sampling_params);
   std::vector<GenerateTextResult> generate(
       const std::vector<std::string>& prompts,
+      const std::vector<SamplingParams>& sampling_params);
+  std::vector<GenerateTextResult> generate(
+      const std::vector<torch::Tensor>& prompt_token_ids,
       const std::vector<SamplingParams>& sampling_params);
   void shutdown();
 

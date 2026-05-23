@@ -66,6 +66,20 @@ void Req::append_host(const torch::Tensor& next_token) {
               "Req::append_host cannot advance beyond device_len");
 }
 
+void Req::append_host_token(int32_t next_token) {
+  if (device_len_ < 0) {
+    initialize_runtime_state();
+  }
+  TORCH_CHECK(input_ids.size(0) + 1 <= device_len_,
+              "Req::append_host_token cannot advance beyond device_len");
+
+  auto next = torch::empty({1}, input_ids.options());
+  next.data_ptr<int32_t>()[0] = next_token;
+  input_ids = torch::cat({input_ids, next});
+  TORCH_CHECK(input_ids.size(0) <= device_len_,
+              "Req::append_host_token cannot advance beyond device_len");
+}
+
 std::string Req::toString() const {
   std::ostringstream oss;
   oss << "Req(table_idx=" << table_idx

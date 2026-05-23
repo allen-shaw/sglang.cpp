@@ -1,10 +1,13 @@
 #include "sglang/server/http_server.h"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+
+#include <async_simple/coro/FutureAwaiter.h>
 
 #include "cinatra/define.h"
 
@@ -150,7 +153,8 @@ ApiServer::ApiServer(const ServerArgs& args)
             frontend_->handle_detokenize(std::move(replies));
           })),
       frontend_(std::make_unique<FrontendManager>(args_, *tokenizer_pool_, *scheduler_runner_)),
-      server_(std::max(1U, std::thread::hardware_concurrency()),
+      server_(std::max(std::max(1U, std::thread::hardware_concurrency()),
+                       static_cast<unsigned>(std::min(args.max_running_req, 128))),
               static_cast<unsigned short>(args.server_port), args.server_host) {
   scheduler_runner_->start();
   register_routes();
@@ -174,6 +178,9 @@ void ApiServer::stop() {
   if (scheduler_runner_) {
     scheduler_runner_->stop();
   }
+  tokenizer_pool_.reset();
+  frontend_.reset();
+  scheduler_runner_.reset();
 }
 
 GenerateTextResult ApiServer::handle_generate(const GenerateHttpRequest& request) {
@@ -220,9 +227,12 @@ async_simple::coro::Lazy<void> ApiServer::stream_generate_http(
     const auto json_obj = parse_request_json(request);
     const auto parsed = json_obj.get<GenerateHttpRequest>();
     if (!parsed.stream) {
+      uid = frontend_->submit_text_request(parsed.prompt, make_sampling_params(parsed));
+      submitted = true;
+      auto result = co_await frontend_->wait_result_async(uid);
       response.add_header("Content-Type", "application/json");
       response.set_status_and_content(cinatra::status_type::ok,
-                                      make_generate_response(handle_generate(parsed)).dump());
+                                      make_generate_response(result).dump());
       co_return;
     }
     uid = frontend_->submit_text_request(parsed.prompt, make_sampling_params(parsed));
@@ -236,12 +246,17 @@ async_simple::coro::Lazy<void> ApiServer::stream_generate_http(
     auto* connection = response.get_conn();
     if (!co_await connection->begin_chunked()) {
       frontend_->abort(uid);
-      (void)frontend_->wait_result(uid);
+      (void)co_await frontend_->wait_result_async(uid);
       co_return;
     }
 
     GenerateResponse chunk;
-    while (frontend_->wait_next_chunk(uid, chunk)) {
+    while (true) {
+      auto maybe_chunk = co_await frontend_->wait_next_chunk_async(uid);
+      if (!maybe_chunk.has_value()) {
+        break;
+      }
+      chunk = std::move(*maybe_chunk);
       if (!co_await connection->write_chunked(make_sse_event(chunk.incremental_output))) {
         frontend_->abort(uid);
         break;
@@ -251,7 +266,7 @@ async_simple::coro::Lazy<void> ApiServer::stream_generate_http(
       }
     }
 
-    (void)frontend_->wait_result(uid);
+    (void)co_await frontend_->wait_result_async(uid);
     (void)co_await connection->write_chunked(make_sse_event("[DONE]"));
     (void)co_await connection->end_chunked();
   } catch (const std::exception& e) {
@@ -273,9 +288,12 @@ async_simple::coro::Lazy<void> ApiServer::stream_chat_http(
     const auto json_obj = parse_request_json(request);
     const auto parsed = json_obj.get<OpenAICompletionRequest>();
     if (!parsed.stream) {
+      uid = submit_chat_request(parsed, make_sampling_params(parsed));
+      submitted = true;
+      auto result = co_await frontend_->wait_result_async(uid);
       response.add_header("Content-Type", "application/json");
       response.set_status_and_content(cinatra::status_type::ok,
-                                      handle_chat_completions(parsed).dump());
+                                      make_chat_response(result.uid, result.text).dump());
       co_return;
     }
     uid = submit_chat_request(parsed, make_sampling_params(parsed));
@@ -289,13 +307,18 @@ async_simple::coro::Lazy<void> ApiServer::stream_chat_http(
     auto* connection = response.get_conn();
     if (!co_await connection->begin_chunked()) {
       frontend_->abort(uid);
-      (void)frontend_->wait_result(uid);
+      (void)co_await frontend_->wait_result_async(uid);
       co_return;
     }
 
     bool first_chunk = true;
     GenerateResponse chunk;
-    while (frontend_->wait_next_chunk(uid, chunk)) {
+    while (true) {
+      auto maybe_chunk = co_await frontend_->wait_next_chunk_async(uid);
+      if (!maybe_chunk.has_value()) {
+        break;
+      }
+      chunk = std::move(*maybe_chunk);
       json delta = json::object();
       if (first_chunk) {
         delta["role"] = "assistant";
@@ -318,7 +341,7 @@ async_simple::coro::Lazy<void> ApiServer::stream_chat_http(
       }
     }
 
-    (void)frontend_->wait_result(uid);
+    (void)co_await frontend_->wait_result_async(uid);
 
     json end_payload = {{"id", "cmpl-" + std::to_string(uid)},
                         {"object", "text_completion.chunk"},

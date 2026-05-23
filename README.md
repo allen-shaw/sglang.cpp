@@ -66,6 +66,7 @@ More design and planning details:
 
 - [Design (Chinese)](docs/DESIGN_zh.md)
 - [Development Plan (Chinese)](docs/DEVELOPMENT_PLAN.md)
+- [Benchmark Guide](benchmarks/README.md)
 
 ## Dependencies
 
@@ -90,10 +91,20 @@ cmake --build build -j4
 Important binaries after build:
 
 - `build/sglang_server`
+- `build/bench_offline`
 - selected test binaries such as:
   - `build/test_scheduler_e2e`
   - `build/test_llm`
   - `build/test_http_e2e`
+
+## Benchmarking
+
+The project now includes:
+
+- an offline C++ benchmark based on Google Benchmark
+- Python online benchmark scripts for `/generate` trace replay and load sweep
+
+See [benchmarks/README.md](benchmarks/README.md) for usage examples and a `mini-sglang` comparison workflow.
 
 ## Model Setup
 

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <tuple>
+#include <utility>
+
 #include <torch/torch.h>
 #include "sglang/models/config.h"
 #include "sglang/models/utils.h"
@@ -9,7 +12,8 @@ namespace sglang {
 class Qwen3DecoderLayer : public torch::nn::Module {
  public:
     Qwen3DecoderLayer(const ModelConfig& config, int layer_id);
-    torch::Tensor forward(torch::Tensor x, const torch::Tensor& positions);
+    std::pair<torch::Tensor, torch::Tensor> forward(
+        torch::Tensor x, const torch::Tensor& positions, torch::Tensor residual);
 
  private:
     std::shared_ptr<RopeAttn> self_attn_;

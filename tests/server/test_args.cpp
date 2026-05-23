@@ -56,6 +56,29 @@ TEST(ServerArgsTest, ParseBasicFlags) {
   EXPECT_TRUE(args.enable_overlap_scheduling);
 }
 
+TEST(ServerArgsTest, OverlapSchedulingDefaultsOnAndCanBeDisabled) {
+  auto default_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+  });
+  EXPECT_TRUE(default_args.enable_overlap_scheduling);
+
+  auto disabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--disable-overlap-scheduling",
+  });
+  EXPECT_FALSE(disabled_args.enable_overlap_scheduling);
+
+  auto reenabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--disable-overlap-scheduling",
+      "--enable-overlap-scheduling",
+  });
+  EXPECT_TRUE(reenabled_args.enable_overlap_scheduling);
+}
+
 TEST(ServerArgsTest, ShellModeTightensDefaults) {
   auto args = ServerArgsParser::parse(std::vector<std::string>{
       "--model-path",
@@ -68,6 +91,35 @@ TEST(ServerArgsTest, ShellModeTightensDefaults) {
   EXPECT_TRUE(args.shell_mode);
   EXPECT_TRUE(args.silent_output);
   EXPECT_EQ(args.max_running_req, 1);
+  EXPECT_TRUE(args.enable_overlap_scheduling);
+}
+
+TEST(ServerArgsTest, CudaGraphFlagAndDisableFlagWork) {
+  auto default_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+  });
+  EXPECT_FALSE(default_args.enable_cuda_graph);
+
+  auto enabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--graph",
+      "16",
+      "--cuda-graph-batch-sizes",
+      "1,2,4,8,16",
+  });
+  EXPECT_TRUE(enabled_args.enable_cuda_graph);
+  ASSERT_TRUE(enabled_args.cuda_graph_max_batch_size.has_value());
+  EXPECT_EQ(*enabled_args.cuda_graph_max_batch_size, 16);
+  EXPECT_EQ(enabled_args.cuda_graph_batch_sizes, (std::vector<int>{1, 2, 4, 8, 16}));
+
+  auto disabled_args = ServerArgsParser::parse(std::vector<std::string>{
+      "--model-path",
+      "/tmp/model",
+      "--disable-graph",
+  });
+  EXPECT_FALSE(disabled_args.enable_cuda_graph);
 }
 
 TEST(ServerArgsTest, ToSchedulerConfigMapsFields) {
@@ -79,6 +131,8 @@ TEST(ServerArgsTest, ToSchedulerConfigMapsFields) {
   args.memory_ratio = 0.3F;
   args.use_dummy_weight = true;
   args.enable_cuda_graph = true;
+  args.cuda_graph_max_batch_size = 16;
+  args.cuda_graph_batch_sizes = {1, 2, 4, 8, 16};
   args.max_seq_len_override = 2048;
   args.num_pages_override = 128;
   args.max_extend_tokens = 96;
@@ -93,6 +147,9 @@ TEST(ServerArgsTest, ToSchedulerConfigMapsFields) {
   EXPECT_FLOAT_EQ(config.memory_ratio, args.memory_ratio);
   EXPECT_TRUE(config.use_dummy_weight);
   EXPECT_TRUE(config.enable_cuda_graph);
+  ASSERT_TRUE(config.cuda_graph_max_batch_size.has_value());
+  EXPECT_EQ(*config.cuda_graph_max_batch_size, 16);
+  EXPECT_EQ(config.cuda_graph_batch_sizes, (std::vector<int>{1, 2, 4, 8, 16}));
   ASSERT_TRUE(config.max_seq_len_override.has_value());
   EXPECT_EQ(*config.max_seq_len_override, 2048);
   ASSERT_TRUE(config.num_pages_override.has_value());

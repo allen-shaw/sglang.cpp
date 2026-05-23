@@ -24,6 +24,7 @@ struct EngineConfig {
     std::optional<int> num_pages_override;
     std::vector<int> cuda_graph_batch_sizes;
     std::optional<int> cuda_graph_max_batch_size;
+    int cuda_graph_capture_max_seq_len = 4096;
     std::optional<ModelConfig> model_config_override;
 
     ModelConfig load_model_config() const;
