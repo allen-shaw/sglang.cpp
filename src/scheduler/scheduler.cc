@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -26,6 +27,25 @@ bool profile_enabled() {
         return value != nullptr && std::string(value) != "0";
     }();
     return enabled;
+}
+
+int env_int(const char* name, int default_value) {
+    const char* value = std::getenv(name);
+    if (value == nullptr) {
+        return default_value;
+    }
+    try {
+        return std::max(0, std::stoi(value));
+    } catch (...) {
+        return default_value;
+    }
+}
+
+int decode_burst_pending_limit() {
+    static const int limit =
+        env_int("SGLANG_CPP_DECODE_BURST_PENDING_LIMIT",
+                std::numeric_limits<int>::max());
+    return limit;
 }
 
 int64_t elapsed_us(std::chrono::steady_clock::time_point start,
@@ -343,9 +363,27 @@ std::shared_ptr<Batch> Scheduler::schedule_next_batch() {
         last_forward_done_event_->block(scheduler_stream_);
     }
 
+    if (decode_burst_remaining_ > 0 && decode_manager_.runnable()) {
+        auto decode_batch = decode_manager_.schedule_next_batch();
+        if (decode_batch) {
+            --decode_burst_remaining_;
+            return decode_batch;
+        }
+    }
+
     auto batch = prefill_manager_.schedule_next_batch(prefill_budget_);
     if (!batch) {
         batch = decode_manager_.schedule_next_batch();
+    } else {
+        const bool has_chunked_prefill =
+            std::any_of(batch->reqs.begin(), batch->reqs.end(), [](const auto& req) {
+                return req->is_chunked_prefill;
+            });
+        const bool pending_pressure =
+            prefill_manager_.pending_size() >
+            static_cast<size_t>(decode_burst_pending_limit());
+        decode_burst_remaining_ =
+            (has_chunked_prefill || pending_pressure) ? 0 : decode_burst_limit();
     }
     return batch;
 }
@@ -483,6 +521,11 @@ bool Scheduler::pending_uses_req(uint64_t uid) const {
         }
     }
     return false;
+}
+
+int Scheduler::decode_burst_limit() const {
+    static const int limit = env_int("SGLANG_CPP_DECODE_BURST", 0);
+    return limit;
 }
 
 void Scheduler::release_deferred_req(uint64_t uid) {

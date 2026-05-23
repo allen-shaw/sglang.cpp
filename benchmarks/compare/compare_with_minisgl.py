@@ -147,6 +147,30 @@ def make_output_dir(arg_value: str) -> Path:
     return path
 
 
+def require_release_build(args: argparse.Namespace) -> None:
+    cache_path = Path(args.sglang_server).resolve().parent / "CMakeCache.txt"
+    if not cache_path.exists():
+        cache_path = REPO_ROOT / "build" / "CMakeCache.txt"
+    if not cache_path.exists():
+        raise RuntimeError(
+            "Missing CMakeCache.txt for sglang.cpp performance run. "
+            "Configure with: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release"
+        )
+
+    build_type = ""
+    for line in cache_path.read_text().splitlines():
+        if line.startswith("CMAKE_BUILD_TYPE:STRING="):
+            build_type = line.split("=", 1)[1].strip()
+            break
+    if build_type != "Release":
+        raise RuntimeError(
+            f"sglang.cpp performance comparison requires Release build, got "
+            f"CMAKE_BUILD_TYPE={build_type or '<unset>'} in {cache_path}. "
+            "Run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && "
+            "cmake --build build -j$(nproc)"
+        )
+
+
 def run_command(
     cmd: list[str],
     *,
@@ -572,7 +596,16 @@ def make_online_comparison_table(df: pd.DataFrame) -> pd.DataFrame:
         columns="framework",
         values=[
             column
-            for column in ["req_per_s", "tok_per_s", "avg_ttft_ms", "avg_e2e_s", "p90_e2e_s"]
+            for column in [
+                "req_per_s",
+                "tok_per_s",
+                "avg_ttft_ms",
+                "p90_ttft_ms",
+                "avg_tbt_ms",
+                "p90_tbt_ms",
+                "avg_e2e_s",
+                "p90_e2e_s",
+            ]
             if column in df.columns
         ],
     )
@@ -589,6 +622,18 @@ def make_online_comparison_table(df: pd.DataFrame) -> pd.DataFrame:
     if {"avg_ttft_ms_sglang.cpp", "avg_ttft_ms_mini-sglang"} <= set(pivot.columns):
         pivot["avg_ttft_ratio_sglang_over_mini"] = (
             pivot["avg_ttft_ms_sglang.cpp"] / pivot["avg_ttft_ms_mini-sglang"]
+        )
+    if {"p90_ttft_ms_sglang.cpp", "p90_ttft_ms_mini-sglang"} <= set(pivot.columns):
+        pivot["p90_ttft_ratio_sglang_over_mini"] = (
+            pivot["p90_ttft_ms_sglang.cpp"] / pivot["p90_ttft_ms_mini-sglang"]
+        )
+    if {"avg_tbt_ms_sglang.cpp", "avg_tbt_ms_mini-sglang"} <= set(pivot.columns):
+        pivot["avg_tbt_ratio_sglang_over_mini"] = (
+            pivot["avg_tbt_ms_sglang.cpp"] / pivot["avg_tbt_ms_mini-sglang"]
+        )
+    if {"p90_tbt_ms_sglang.cpp", "p90_tbt_ms_mini-sglang"} <= set(pivot.columns):
+        pivot["p90_tbt_ratio_sglang_over_mini"] = (
+            pivot["p90_tbt_ms_sglang.cpp"] / pivot["p90_tbt_ms_mini-sglang"]
         )
     if {"avg_e2e_s_sglang.cpp", "avg_e2e_s_mini-sglang"} <= set(pivot.columns):
         pivot["avg_e2e_ratio_sglang_over_mini"] = (
@@ -654,7 +699,16 @@ def plot_online(df: pd.DataFrame, output_dir: Path) -> None:
         return
     metrics = [
         metric
-        for metric in ["req_per_s", "tok_per_s", "avg_ttft_ms", "avg_e2e_s", "p90_e2e_s"]
+        for metric in [
+            "req_per_s",
+            "tok_per_s",
+            "avg_ttft_ms",
+            "p90_ttft_ms",
+            "avg_tbt_ms",
+            "p90_tbt_ms",
+            "avg_e2e_s",
+            "p90_e2e_s",
+        ]
         if metric in df.columns
     ]
     for metric in metrics:
@@ -687,6 +741,7 @@ def plot_online_ratio(df: pd.DataFrame, output_dir: Path) -> None:
 
 def main() -> None:
     args = build_parser().parse_args()
+    require_release_build(args)
     output_dir = make_output_dir(args.output_dir)
     print(f"Writing benchmark comparison outputs to {output_dir}")
 

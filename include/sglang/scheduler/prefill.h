@@ -127,6 +127,7 @@ class PrefillManager {
     std::shared_ptr<Batch> schedule_next_batch(int prefill_budget);
     std::shared_ptr<Req> abort_req(uint64_t uid);
     bool runnable() const;
+    size_t pending_size() const;
 
  private:
     CacheManager& cache_manager_;

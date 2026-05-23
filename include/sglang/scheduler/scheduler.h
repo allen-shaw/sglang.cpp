@@ -69,6 +69,7 @@ class Scheduler {
     std::vector<DetokenizeMsg> step_no_overlap();
     std::vector<DetokenizeMsg> step_overlap();
     bool pending_uses_req(uint64_t uid) const;
+    int decode_burst_limit() const;
     void release_deferred_req(uint64_t uid);
     void flush_deferred_resource_actions();
     void cache_req_or_defer(const std::shared_ptr<Req>& req, bool finished);
@@ -93,6 +94,7 @@ class Scheduler {
     DecodeManager decode_manager_;
     PrefillManager prefill_manager_;
     int prefill_budget_;
+    int decode_burst_remaining_ = 0;
     std::optional<PendingForward> pending_forward_;
     std::unordered_set<uint64_t> suppressed_reqs_;
     std::unordered_set<uint64_t> freed_reqs_;

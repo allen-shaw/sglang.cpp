@@ -424,4 +424,8 @@ bool PrefillManager::runnable() const {
     return !pending_list_.empty();
 }
 
+size_t PrefillManager::pending_size() const {
+    return pending_list_.size();
+}
+
 }  // namespace sglang
